@@ -1,0 +1,27 @@
+id,phase,category,title,description,estimate_days,depends_on,dependency_type
+BE-01,PH1,Backend,"Project skeleton","Create src layout, typed settings loader, and base runtime wiring",0.5,,
+BE-02,PH1,Backend,"CharacterCard schema and validation","Implement CharacterCard schema, validation flow, and typed error model",1.0,BE-01,hard
+BE-03,PH1,Backend,"Discord mention listener","Implement channel-scoped listener and bot mention trigger filter",1.0,BE-01,hard
+BE-04,PH1,Backend,"Recent message collector","Collect recent N messages (default 25) from channel history",0.5,BE-03,hard
+BE-05,PH1,Backend,"QMD adapter with fallback","Implement qmd query timeout handling and fallback to qmd search with normalized output",1.5,BE-01,hard
+BE-06,PH1,Backend,"Prompt builder and token budget","Compose prompt blocks and enforce truncation/budget strategy",1.0,"BE-02|BE-04|BE-05",hard
+BE-07,PH1,Backend,"Anthropic client adapter","Implement Anthropic completion adapter with model config injection",0.5,BE-01,hard
+BE-08,PH1,Backend,"End-to-end response pipeline","Wire mention -> retrieve -> generate -> send orchestration flow",1.5,"BE-03|BE-06|BE-07",hard
+BE-09,PH1,Backend,"Async memory extraction","Fire-and-forget extraction and append to daily markdown memory file",1.0,BE-08,hard
+BE-10,PH1,Backend,"Scheduled qmd update/embed","Implement periodic qmd update + embed job with configurable interval",1.0,BE-05,hard
+BE-11,PH1,Backend,"Hot-swap NPC identity","Archive old memory, bind new card, and refresh Discord identity hooks",1.5,"BE-02|BE-09",hard
+FE-01,PH1,Frontend,"Reply formatting templates","Create in-character reply format and minimal OOC notice conventions",0.5,BE-08,soft
+FE-02,PH1,Frontend,"Slash command UX","Implement /npc status, /npc reload, /npc swap command entry points",1.5,BE-11,hard
+FE-03,PH1,Frontend,"Command validation and errors","Return clear user-facing validation and failure messages for commands",0.5,FE-02,hard
+FE-04,PH1,Frontend,"Skill excerpt rendering","Load coc7e and dnd5e rule excerpts into prompt-ready text blocks",0.5,BE-06,hard
+OPS-01,PH1,DevOps,"Secrets contract","Create .env.example and per-NPC secret contract documentation",0.5,BE-01,hard
+OPS-02,PH1,DevOps,"Agent directory bootstrap","Script creation of ~/.homunculus/agents/<npc>/ required paths",1.0,BE-02,hard
+OPS-03,PH1,DevOps,"Runtime packaging","Provide Docker Compose or systemd template for runtime service",1.5,BE-08,hard
+OPS-04,PH1,DevOps,"CI pipeline","Set up lint, unit test, and integration smoke workflow",1.0,BE-01,hard
+OPS-05,PH1,DevOps,"Observability baseline","Emit structured logs and token/cost metrics",1.0,BE-08,hard
+QA-01,PH1,Testing,"CharacterCard unit tests","Cover valid and invalid CharacterCard parsing/validation paths",0.5,BE-02,hard
+QA-02,PH1,Testing,"QMD adapter unit tests","Cover success, timeout fallback, and dual-failure branches",1.0,BE-05,hard
+QA-03,PH1,Testing,"Prompt budgeting unit tests","Verify token cap, truncation, and deterministic prompt ordering",0.5,BE-06,hard
+QA-04,PH1,Testing,"Mention-to-reply integration","Mock Anthropic and verify full mention trigger to channel reply flow",1.0,BE-08,hard
+QA-05,PH1,Testing,"Memory failure resilience test","Verify memory extraction failure never blocks primary reply",0.5,BE-09,hard
+QA-06,PH1,Testing,"Hot-swap integration test","Verify archive of old memory and clean state for new NPC identity",1.0,BE-11,hard

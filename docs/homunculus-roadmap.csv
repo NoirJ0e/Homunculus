@@ -1,0 +1,4 @@
+phase_id,phase_name,goal,exit_criteria,status,notes
+PH1,"Phase 1 - MVP Core Loop","Mention-triggered NPC response with memory read/write and Anthropic integration","One NPC runs 3-4h session with no crash; p90 reply < 5s (excluding provider spikes); memory retrieval and append operational","planned","Core MVP delivery"
+PH2,"Phase 2 - Hardening and Operability","Reliability, observability, deployment automation, and performance guardrails","Multi-NPC stable run; fallback behavior verified; CI and deploy scripts ready","planned","Production-like readiness"
+PH3,"Phase 3 - Extensions","Post-MVP product capabilities","Dice integration, web admin panel, multi-provider support, and richer NPC states introduced","planned","Optional growth phase"

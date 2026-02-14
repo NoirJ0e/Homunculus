@@ -1,0 +1,13 @@
+task_id,task_title,type,item,details
+BE-05,"QMD adapter with timeout and BM25 fallback",meta,summary,"Implement qmd retrieval adapter with robust timeout and fallback behavior"
+BE-05,"QMD adapter with timeout and BM25 fallback",acceptance_criteria,AC-01,"Run qmd query --json with NPC-specific XDG_CONFIG_HOME and XDG_CACHE_HOME"
+BE-05,"QMD adapter with timeout and BM25 fallback",acceptance_criteria,AC-02,"top_k and timeout are configurable from settings"
+BE-05,"QMD adapter with timeout and BM25 fallback",acceptance_criteria,AC-03,"On timeout or non-zero exit from qmd query, automatically execute qmd search --json"
+BE-05,"QMD adapter with timeout and BM25 fallback",acceptance_criteria,AC-04,"Normalize outputs to internal schema: text, source, score, mode"
+BE-05,"QMD adapter with timeout and BM25 fallback",acceptance_criteria,AC-05,"Do not propagate uncaught exceptions; return controlled error object when both strategies fail"
+BE-05,"QMD adapter with timeout and BM25 fallback",acceptance_criteria,AC-06,"Emit logs for retrieval mode, latency, and error type without secrets"
+BE-05,"QMD adapter with timeout and BM25 fallback",acceptance_criteria,AC-07,"Unit tests cover query success, timeout plus fallback success, and full-failure path"
+BE-05,"QMD adapter with timeout and BM25 fallback",technical_note,TN-01,"Use asyncio.create_subprocess_exec rather than shell-concatenated command strings"
+BE-05,"QMD adapter with timeout and BM25 fallback",technical_note,TN-02,"Cap query length before command execution to prevent pathological runtimes"
+BE-05,"QMD adapter with timeout and BM25 fallback",technical_note,TN-03,"Parser should be strict with graceful defaults for partially missing fields"
+BE-05,"QMD adapter with timeout and BM25 fallback",technical_note,TN-04,"Completion condition: QA-02 passes in CI"
