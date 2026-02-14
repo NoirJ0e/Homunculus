@@ -1,8 +1,8 @@
 # Homunculus
 
-Phase-1 backend foundation for a Discord-based TTRPG NPC runtime.
+Phase-1 MVP runtime for a Discord-based TTRPG NPC agent system.
 
-## Current scope (BE-01 + BE-02 + BE-03 + BE-04 + BE-05 + BE-06 + BE-07 + BE-08 + BE-09 + BE-10 + BE-11)
+## Current scope (BE-01..BE-11 + FE-01..FE-04 + OPS-01..OPS-05 + QA-01..QA-06)
 
 - `src` package layout
 - Typed settings loader with validation
@@ -17,6 +17,13 @@ Phase-1 backend foundation for a Discord-based TTRPG NPC runtime.
 - Async memory extraction with fire-and-forget markdown append
 - Scheduled `qmd update` + `qmd embed` index maintenance
 - NPC hot-swap identity manager with archive isolation and refresh hook
+- Reply formatting templates for consistent in-character Discord output
+- Slash command handler layer for `/npc status`, `/npc reload`, and `/npc swap`
+- Skill ruleset excerpt rendering from static `coc7e` / `dnd5e` files
+- Agent directory bootstrap script for idempotent local setup
+- Runtime packaging templates (`Dockerfile`, Docker Compose, systemd unit)
+- Observability metrics for token usage and estimated completion cost
+- Expanded test coverage for FE/OPS modules and observability
 
 ## Quick start
 
@@ -33,4 +40,8 @@ PYTHONPATH=src python3 -m homunculus --check --config config/homunculus.example.
 PYTHONPATH=src python3 -m homunculus --config config/homunculus.example.json
 ```
 
-The runtime currently boots and waits for shutdown signals. Feature adapters are added in follow-up tasks.
+Additional setup helpers:
+
+```bash
+python3 scripts/bootstrap-agents.py kovach eliza
+```

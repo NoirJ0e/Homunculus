@@ -110,6 +110,28 @@ class LlmClientTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(LlmClientError):
             await client.complete(LlmRequest(system_prompt="sys", user_prompt="usr"))
 
+    async def test_success_log_contains_token_and_cost_metrics(self):
+        transport = _FakeTransport(
+            {
+                "content": [{"type": "text", "text": "metrics"}],
+                "usage": {"input_tokens": 25, "output_tokens": 10},
+                "model": "claude-sonnet-4-5-20250929",
+            }
+        )
+        client = build_llm_client(
+            self._settings(),
+            environ={"ANTHROPIC_KEY": "secret-key"},
+            anthropic_transport=transport,
+        )
+
+        with self.assertLogs("homunculus.llm.client", level="INFO") as logs:
+            await client.complete(LlmRequest(system_prompt="sys", user_prompt="usr"))
+
+        self.assertTrue(any("llm_completion_success" in line for line in logs.output), logs.output)
+        self.assertTrue(any("input_tokens=25" in line for line in logs.output), logs.output)
+        self.assertTrue(any("output_tokens=10" in line for line in logs.output), logs.output)
+        self.assertTrue(any("estimated_cost_usd=" in line for line in logs.output), logs.output)
+
 
 if __name__ == "__main__":
     unittest.main()

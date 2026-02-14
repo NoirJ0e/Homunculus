@@ -187,7 +187,7 @@ class ResponsePipelineTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(outcome.sent)
         self.assertEqual(outcome.retrieval_mode, "query")
         self.assertIsNone(outcome.error_type)
-        self.assertEqual(sender.messages, ["I was at the shop."])
+        self.assertEqual(sender.messages, ["**Kovach:** I was at the shop."])
         self.assertEqual(len(retriever.queries), 1)
         self.assertEqual(len(llm.requests), 1)
 
@@ -247,7 +247,7 @@ class ResponsePipelineTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(outcome.handled)
         self.assertTrue(outcome.sent)
         self.assertEqual(outcome.retrieval_error_type, "both_failed")
-        self.assertEqual(sender.messages, ["Fallback reply."])
+        self.assertEqual(sender.messages, ["**Kovach:** Fallback reply."])
 
     async def test_llm_failure_returns_controlled_outcome(self):
         retriever = _MemoryRetriever(
@@ -299,7 +299,90 @@ class ResponsePipelineTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(outcome.handled)
         self.assertTrue(outcome.sent)
-        self.assertEqual(sender.messages, ["Reply still sent."])
+        self.assertEqual(sender.messages, ["**Kovach:** Reply still sent."])
+
+    async def test_ruleset_can_supply_skill_excerpt_when_not_provided(self):
+        retriever = _MemoryRetriever(
+            RetrievalResult(records=(), mode="query", used_fallback=False, error=None)
+        )
+        llm = _LlmClient(text="Reply from ruleset.")
+        sender = _Sender()
+        pipeline = self._pipeline(retriever=retriever, llm_client=llm)
+
+        outcome = await pipeline.on_message(
+            message=_IncomingMessage(
+                channel_id=200,
+                author_id=100,
+                author_is_bot=False,
+                mentioned_user_ids=[999],
+            ),
+            history_provider=_provider(),
+            sender=sender,
+            character_card=_card(),
+            skill_ruleset="coc7e",
+        )
+
+        self.assertTrue(outcome.sent)
+        self.assertEqual(sender.messages, ["**Kovach:** Reply from ruleset."])
+        self.assertEqual(len(llm.requests), 1)
+        self.assertIn("CoC 7e Quick Excerpt", llm.requests[0].system_prompt)
+
+    async def test_invalid_ruleset_logs_warning_and_continues(self):
+        retriever = _MemoryRetriever(
+            RetrievalResult(records=(), mode="query", used_fallback=False, error=None)
+        )
+        llm = _LlmClient(text="Reply after invalid ruleset.")
+        sender = _Sender()
+        pipeline = self._pipeline(retriever=retriever, llm_client=llm)
+
+        with self.assertLogs("homunculus.pipeline.response", level="WARNING") as logs:
+            outcome = await pipeline.on_message(
+                message=_IncomingMessage(
+                    channel_id=200,
+                    author_id=100,
+                    author_is_bot=False,
+                    mentioned_user_ids=[999],
+                ),
+                history_provider=_provider(),
+                sender=sender,
+                character_card=_card(),
+                skill_ruleset="invalid-ruleset",
+            )
+
+        self.assertTrue(outcome.sent)
+        self.assertEqual(sender.messages, ["**Kovach:** Reply after invalid ruleset."])
+        self.assertTrue(
+            any("skill_excerpt_load_failed" in line for line in logs.output),
+            logs.output,
+        )
+
+    async def test_success_log_contains_llm_token_and_cost_metrics(self):
+        retriever = _MemoryRetriever(
+            RetrievalResult(records=(), mode="query", used_fallback=False, error=None)
+        )
+        llm = _LlmClient(text="Observe metrics.")
+        sender = _Sender()
+        pipeline = self._pipeline(retriever=retriever, llm_client=llm)
+
+        with self.assertLogs("homunculus.pipeline.response", level="INFO") as logs:
+            outcome = await pipeline.on_message(
+                message=_IncomingMessage(
+                    channel_id=200,
+                    author_id=100,
+                    author_is_bot=False,
+                    mentioned_user_ids=[999],
+                ),
+                history_provider=_provider(),
+                sender=sender,
+                character_card=_card(),
+                skill_rules_excerpt="",
+            )
+
+        self.assertTrue(outcome.sent)
+        self.assertTrue(any("response_pipeline_success" in line for line in logs.output), logs.output)
+        self.assertTrue(any("llm_input_tokens=100" in line for line in logs.output), logs.output)
+        self.assertTrue(any("llm_output_tokens=20" in line for line in logs.output), logs.output)
+        self.assertTrue(any("llm_estimated_cost_usd=" in line for line in logs.output), logs.output)
 
 
 if __name__ == "__main__":

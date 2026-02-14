@@ -13,9 +13,12 @@ from homunculus.discord.recent_messages import (
     RecentMessage,
     RecentMessageCollector,
 )
+from homunculus.discord.reply_formatter import ReplyFormatter
 from homunculus.llm.client import LlmClient, LlmClientError, LlmRequest
 from homunculus.memory.qmd_adapter import RetrievalResult
+from homunculus.observability import estimate_completion_cost_usd
 from homunculus.prompt.builder import PromptBuilder
+from homunculus.skills import SkillExcerptError, load_skill_excerpt
 
 
 class MemoryRetriever(Protocol):
@@ -45,6 +48,11 @@ class MemoryExtractionScheduler(Protocol):
         ...
 
 
+class ReplyFormatterLike(Protocol):
+    def format_reply(self, *, npc_name: str, response_text: str) -> str:
+        ...
+
+
 SceneQueryBuilder = Callable[[Sequence[RecentMessage]], str]
 
 
@@ -70,6 +78,7 @@ class ResponsePipeline:
         prompt_builder: PromptBuilder,
         llm_client: LlmClient,
         memory_extractor: MemoryExtractionScheduler | None = None,
+        reply_formatter: ReplyFormatterLike | None = None,
         scene_query_builder: SceneQueryBuilder | None = None,
         history_limit: int = 25,
         logger: logging.Logger | None = None,
@@ -83,6 +92,7 @@ class ResponsePipeline:
         self._prompt_builder = prompt_builder
         self._llm_client = llm_client
         self._memory_extractor = memory_extractor
+        self._reply_formatter = reply_formatter or ReplyFormatter()
         self._scene_query_builder = scene_query_builder or _default_scene_query_builder
         self._history_limit = history_limit
         self._logger = logger or logging.getLogger("homunculus.pipeline.response")
@@ -94,7 +104,8 @@ class ResponsePipeline:
         history_provider: ChannelHistoryProvider,
         sender: ChannelSender,
         character_card: CharacterCard,
-        skill_rules_excerpt: str,
+        skill_rules_excerpt: str = "",
+        skill_ruleset: Optional[str] = None,
         npc_name: Optional[str] = None,
     ) -> PipelineOutcome:
         if not self._listener.should_respond(message):
@@ -127,9 +138,21 @@ class ResponsePipeline:
         memories = retrieval.records if retrieval.error is None else ()
         retrieval_error_type = retrieval.error.type if retrieval.error is not None else None
 
+        effective_skill_rules_excerpt = skill_rules_excerpt
+        if not effective_skill_rules_excerpt.strip() and skill_ruleset is not None:
+            try:
+                effective_skill_rules_excerpt = load_skill_excerpt(skill_ruleset)
+            except SkillExcerptError as exc:
+                self._logger.warning(
+                    "skill_excerpt_load_failed ruleset=%s error_type=%s",
+                    skill_ruleset,
+                    exc.__class__.__name__,
+                )
+                effective_skill_rules_excerpt = ""
+
         prompt = self._prompt_builder.build(
             character_card=character_card,
-            skill_rules_excerpt=skill_rules_excerpt,
+            skill_rules_excerpt=effective_skill_rules_excerpt,
             memories=memories,
             recent_messages=recent_messages,
         )
@@ -153,7 +176,11 @@ class ResponsePipeline:
             )
 
         try:
-            await sender.send_message(response.text)
+            response_text = self._reply_formatter.format_reply(
+                npc_name=(npc_name or character_card.name),
+                response_text=response.text,
+            )
+            await sender.send_message(response_text)
         except Exception as exc:  # pragma: no cover - defensive guard
             self._logger.exception("send_message_failed")
             return PipelineOutcome(
@@ -178,11 +205,20 @@ class ResponsePipeline:
                     exc.__class__.__name__,
                 )
 
+        estimated_cost_usd = estimate_completion_cost_usd(
+            model=response.model,
+            input_tokens=response.input_tokens,
+            output_tokens=response.output_tokens,
+        )
         self._logger.info(
-            "response_pipeline_success retrieval_mode=%s retrieval_error_type=%s prompt_tokens=%s",
+            "response_pipeline_success retrieval_mode=%s retrieval_error_type=%s prompt_tokens=%s llm_model=%s llm_input_tokens=%s llm_output_tokens=%s llm_estimated_cost_usd=%s",
             retrieval.mode,
             retrieval_error_type,
             prompt.estimated_input_tokens,
+            response.model,
+            response.input_tokens,
+            response.output_tokens,
+            estimated_cost_usd,
         )
         return PipelineOutcome(
             handled=True,

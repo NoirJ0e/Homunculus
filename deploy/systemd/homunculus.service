@@ -1,0 +1,18 @@
+[Unit]
+Description=Homunculus NPC Runtime
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/homunculus
+EnvironmentFile=/etc/homunculus/homunculus.env
+ExecStart=/usr/bin/env python3 -m homunculus --config /etc/homunculus/config.json
+ExecStartPre=/usr/bin/env python3 -m homunculus --check --config /etc/homunculus/config.json
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+KillSignal=SIGINT
+
+[Install]
+WantedBy=multi-user.target

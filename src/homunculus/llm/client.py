@@ -6,10 +6,12 @@ from dataclasses import dataclass
 from typing import Any, Mapping, Optional, Protocol, Sequence
 import asyncio
 import json
+import logging
 import urllib.error
 import urllib.request
 
 from homunculus.config.settings import AppSettings, resolve_env_secret
+from homunculus.observability import estimate_completion_cost_usd
 
 
 @dataclass(frozen=True)
@@ -104,6 +106,7 @@ class AnthropicClient:
         default_temperature: float,
         timeout_seconds: float,
         transport: AnthropicTransport,
+        logger: logging.Logger | None = None,
     ) -> None:
         self._model = model
         self._api_key = api_key
@@ -111,6 +114,7 @@ class AnthropicClient:
         self._default_temperature = default_temperature
         self._timeout_seconds = timeout_seconds
         self._transport = transport
+        self._logger = logger or logging.getLogger("homunculus.llm.client")
 
     async def complete(self, request: LlmRequest) -> LlmResponse:
         payload = {
@@ -130,7 +134,20 @@ class AnthropicClient:
             payload=payload,
             timeout_seconds=self._timeout_seconds,
         )
-        return _parse_anthropic_response(raw)
+        response = _parse_anthropic_response(raw)
+        estimated_cost_usd = estimate_completion_cost_usd(
+            model=response.model,
+            input_tokens=response.input_tokens,
+            output_tokens=response.output_tokens,
+        )
+        self._logger.info(
+            "llm_completion_success provider=anthropic model=%s input_tokens=%s output_tokens=%s estimated_cost_usd=%s",
+            response.model,
+            response.input_tokens,
+            response.output_tokens,
+            estimated_cost_usd,
+        )
+        return response
 
 
 def build_llm_client(
@@ -138,6 +155,7 @@ def build_llm_client(
     *,
     environ: Optional[Mapping[str, str]] = None,
     anthropic_transport: Optional[AnthropicTransport] = None,
+    logger: logging.Logger | None = None,
 ) -> LlmClient:
     provider = settings.model.provider
     if provider != "anthropic":
@@ -152,6 +170,7 @@ def build_llm_client(
         default_temperature=settings.model.temperature,
         timeout_seconds=settings.model.timeout_seconds,
         transport=transport,
+        logger=logger,
     )
 
 
