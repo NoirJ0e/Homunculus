@@ -1,0 +1,33 @@
+{
+  "agent": {
+    "npc_name": "kovach",
+    "character_card_path": "./agents/kovach/card.json",
+    "qmd_index": "kovach",
+    "skill_ruleset": "coc7e"
+  },
+  "discord": {
+    "channel_id": 123456789012345678,
+    "bot_token_env": "DISCORD_BOT_TOKEN"
+  },
+  "model": {
+    "provider": "anthropic",
+    "name": "claude-sonnet-4-5-20250929",
+    "api_key_env": "ANTHROPIC_API_KEY",
+    "max_tokens": 500,
+    "temperature": 0.7,
+    "timeout_seconds": 30.0
+  },
+  "memory": {
+    "qmd_binary": "qmd",
+    "top_k": 10,
+    "query_timeout_seconds": 4.0,
+    "fallback_timeout_seconds": 2.0,
+    "update_interval_seconds": 300.0,
+    "update_timeout_seconds": 60.0
+  },
+  "runtime": {
+    "log_level": "INFO",
+    "data_home": "~/.homunculus",
+    "dry_run": true
+  }
+}
