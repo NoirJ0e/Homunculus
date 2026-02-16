@@ -9,9 +9,9 @@ cd /home/joexu/Repos/Homunculus
 # Activate virtual environment
 source venv/bin/activate
 
-# Export credentials - REPLACE THESE WITH YOUR OWN
+# Export credentials (REPLACE WITH YOUR VALUES)
 export KOVACH_DISCORD_BOT_TOKEN="YOUR_DISCORD_BOT_TOKEN_HERE"
-export ANTHROPIC_API_KEY="YOUR_ANTHROPIC_API_KEY_HERE"
+export OPENCLAW_GATEWAY_TOKEN="YOUR_OPENCLAW_GATEWAY_TOKEN_HERE"
 
 # Bootstrap agent directory
 if [ ! -d ~/.homunculus/agents/kovach ]; then
@@ -29,7 +29,7 @@ echo "  Homunculus - TTRPG NPC Agent"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  NPC: 科瓦奇 (Kovach)"
 echo "  Channel: 1472783663077785722"
-echo "  Model: claude-sonnet-4-5"
+echo "  Model: claude-haiku-4-5 (via OpenClaw agent: homunculus)"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 

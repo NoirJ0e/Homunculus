@@ -41,6 +41,18 @@ class ChannelSender(Protocol):
 
     async def send_message(self, content: str) -> None:
         ...
+    
+    async def add_reaction(self, message_id: int, emoji: str) -> None:
+        """Add a reaction emoji to a message."""
+        ...
+    
+    async def start_typing(self) -> None:
+        """Start typing indicator in the channel."""
+        ...
+    
+    async def stop_typing(self) -> None:
+        """Stop typing indicator (no-op, handled by context manager)."""
+        ...
 
 
 class OnMessageHandler(Protocol):
@@ -97,11 +109,42 @@ class DiscordHistoryProvider:
 class DiscordChannelSender:
     """Sends messages to a Discord channel."""
 
-    def __init__(self, channel: "discord.TextChannel") -> None:
+    def __init__(self, channel: "discord.TextChannel", logger: Optional[logging.Logger] = None) -> None:
         self._channel = channel
+        self._logger = logger or logging.getLogger("homunculus.discord.sender")
+        self._typing_task: Optional[asyncio.Task] = None
 
     async def send_message(self, content: str) -> None:
         await self._channel.send(content)
+    
+    async def add_reaction(self, message_id: int, emoji: str) -> None:
+        """Add a reaction emoji to a message."""
+        try:
+            message = await self._channel.fetch_message(message_id)
+            await message.add_reaction(emoji)
+        except Exception as e:
+            self._logger.warning(f"Failed to add reaction: {e}")
+    
+    async def start_typing(self) -> None:
+        """Start typing indicator in the channel."""
+        # Discord typing indicator lasts ~10 seconds, we need to keep refreshing
+        async def _keep_typing():
+            while True:
+                async with self._channel.typing():
+                    await asyncio.sleep(8)  # Refresh every 8 seconds
+        
+        if self._typing_task is None or self._typing_task.done():
+            self._typing_task = asyncio.create_task(_keep_typing())
+    
+    async def stop_typing(self) -> None:
+        """Stop typing indicator."""
+        if self._typing_task is not None and not self._typing_task.done():
+            self._typing_task.cancel()
+            try:
+                await self._typing_task
+            except asyncio.CancelledError:
+                pass
+            self._typing_task = None
 
 
 class DiscordClientService:
@@ -250,7 +293,7 @@ class DiscordClientService:
             self._logger.info(f"Creating providers...")
             # Create providers for this message
             history_provider = DiscordHistoryProvider(self._target_channel)
-            sender = DiscordChannelSender(self._target_channel)
+            sender = DiscordChannelSender(self._target_channel, logger=self._logger)
 
             self._logger.info(f"Invoking handler...")
             # Invoke handler

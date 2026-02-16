@@ -40,23 +40,35 @@ class DiscordMessageHandler:
             f"mentions={message.mentioned_user_ids}"
         )
         
-        outcome = await self._pipeline.on_message(
-            message=message,
-            history_provider=history_provider,
-            sender=sender,
-            character_card=self._character_card,
-            skill_ruleset=self._skill_ruleset,
-            npc_name=self._character_card.name,
-        )
-
-        self._logger.info(
-            f"Pipeline outcome: handled={outcome.handled}, sent={outcome.sent}, error={outcome.error_type}"
-        )
+        # Add checkmark reaction to acknowledge receipt
+        message_id = getattr(message, "message_id", None)
+        if message_id is not None:
+            await sender.add_reaction(message_id, "✅")
         
-        if outcome.handled:
-            self._logger.debug(
-                "Message handled: message_id=%s sent=%s error=%s",
-                getattr(message, "message_id", None),
-                outcome.sent,
-                outcome.error_type,
+        # Start typing indicator
+        await sender.start_typing()
+        
+        try:
+            outcome = await self._pipeline.on_message(
+                message=message,
+                history_provider=history_provider,
+                sender=sender,
+                character_card=self._character_card,
+                skill_ruleset=self._skill_ruleset,
+                npc_name=self._character_card.name,
             )
+
+            self._logger.info(
+                f"Pipeline outcome: handled={outcome.handled}, sent={outcome.sent}, error={outcome.error_type}"
+            )
+            
+            if outcome.handled:
+                self._logger.debug(
+                    "Message handled: message_id=%s sent=%s error=%s",
+                    message_id,
+                    outcome.sent,
+                    outcome.error_type,
+                )
+        finally:
+            # Always stop typing when done
+            await sender.stop_typing()

@@ -75,11 +75,13 @@ class ModelSettings:
     max_tokens: int = 500
     temperature: float = 0.7
     timeout_seconds: float = 30.0
+    base_url: Optional[str] = None
+    agent_id: Optional[str] = None
 
     def __post_init__(self) -> None:
         provider = self.provider.strip().lower()
-        if provider != "anthropic":
-            raise SettingsError("model.provider must be 'anthropic' in MVP.")
+        if provider not in ("anthropic", "openai", "openclaw"):
+            raise SettingsError("model.provider must be 'anthropic', 'openai', or 'openclaw'.")
 
         name = self.name.strip()
         if not name:
@@ -98,9 +100,19 @@ class ModelSettings:
         if self.timeout_seconds <= 0:
             raise SettingsError("model.timeout_seconds must be > 0.")
 
+        base_url = self.base_url.strip() if self.base_url else None
+        if base_url == "":
+            base_url = None
+
+        agent_id = self.agent_id.strip() if self.agent_id else None
+        if agent_id == "":
+            agent_id = None
+
         object.__setattr__(self, "provider", provider)
         object.__setattr__(self, "name", name)
         object.__setattr__(self, "api_key_env", api_key_env)
+        object.__setattr__(self, "base_url", base_url)
+        object.__setattr__(self, "agent_id", agent_id)
 
 
 @dataclass(frozen=True)
@@ -289,6 +301,24 @@ def load_settings(
             caster=_as_float,
             default=30.0,
         ),
+        base_url=_read_value(
+            config,
+            env,
+            section="model",
+            key="base_url",
+            env_key="HOMUNCULUS_MODEL_BASE_URL",
+            caster=_as_optional_str,
+            default=None,
+        ),
+        agent_id=_read_value(
+            config,
+            env,
+            section="model",
+            key="agent_id",
+            env_key="HOMUNCULUS_MODEL_AGENT_ID",
+            caster=_as_optional_str,
+            default=None,
+        ),
     )
 
     memory = MemorySettings(
@@ -423,6 +453,8 @@ def settings_summary(settings: AppSettings) -> dict:
             "max_tokens": settings.model.max_tokens,
             "temperature": settings.model.temperature,
             "timeout_seconds": settings.model.timeout_seconds,
+            "base_url": settings.model.base_url,
+            "agent_id": settings.model.agent_id,
         },
         "memory": {
             "qmd_binary": settings.memory.qmd_binary,
@@ -525,6 +557,15 @@ def _as_str(value: Any) -> str:
             raise SettingsError("Value cannot be empty.")
         return text
 
+    raise SettingsError("Expected string value.")
+
+
+def _as_optional_str(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+        return text if text else None
     raise SettingsError("Expected string value.")
 
 

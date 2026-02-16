@@ -1,0 +1,35 @@
+{
+  "agent": {
+    "npc_name": "kovach",
+    "character_card_path": "./examples/kovach/character-card.json",
+    "qmd_index": "kovach",
+    "skill_ruleset": "coc7e"
+  },
+  "discord": {
+    "channel_id": 1472783663077785722,
+    "bot_token_env": "KOVACH_DISCORD_BOT_TOKEN"
+  },
+  "model": {
+    "provider": "openclaw",
+    "name": "claude-opus-4-6",
+    "api_key_env": "OPENCLAW_GATEWAY_TOKEN",
+    "base_url": "http://127.0.0.1:18789/v1",
+    "agent_id": "coc-keeper",
+    "max_tokens": 1000,
+    "temperature": 0.8,
+    "timeout_seconds": 30.0
+  },
+  "memory": {
+    "qmd_binary": "/home/joexu/.cache/.bun/bin/qmd",
+    "top_k": 10,
+    "query_timeout_seconds": 4.0,
+    "fallback_timeout_seconds": 2.0,
+    "update_interval_seconds": 300.0,
+    "update_timeout_seconds": 60.0
+  },
+  "runtime": {
+    "log_level": "INFO",
+    "data_home": "~/.homunculus",
+    "dry_run": false
+  }
+}

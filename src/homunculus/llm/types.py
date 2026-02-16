@@ -10,6 +10,8 @@ class ModelConfig:
     api_key_env: str = "ANTHROPIC_API_KEY"
     max_tokens: int = 500
     temperature: float = 0.7
+    base_url: str | None = None
+    agent_id: str | None = None  # For OpenClaw: override agent via x-openclaw-agent-id header
 
 
 @dataclass(frozen=True)
