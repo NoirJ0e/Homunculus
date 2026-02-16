@@ -35,8 +35,28 @@ ENV/
 # Secrets & Config
 START.sh
 .env
+.env.*
+!.env.example
+!.env.*.example
+*.env
+*.env.*
+!*.env.example
+!*.env.*.example
+.envrc
 *.key
-*secret*
+*.pem
+*.p12
+*.pfx
+*.jks
+*.kdbx
+id_rsa
+id_rsa.*
+id_ed25519
+id_ed25519.*
+*.secret
+*.secrets
+secrets.*
+*.token
 examples/*/config.json
 
 # OS
