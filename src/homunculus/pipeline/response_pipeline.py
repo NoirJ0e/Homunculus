@@ -108,7 +108,15 @@ class ResponsePipeline:
         skill_ruleset: Optional[str] = None,
         npc_name: Optional[str] = None,
     ) -> PipelineOutcome:
-        if not self._listener.should_respond(message):
+        should_respond = self._listener.should_respond(message)
+        self._logger.info(
+            f"MentionListener check: should_respond={should_respond}, "
+            f"target_channel={self._listener.target_channel_id}, msg_channel={message.channel_id}, "
+            f"bot_user_id={self._listener.bot_user_id}, author_id={message.author_id}, "
+            f"author_is_bot={message.author_is_bot}, mentions={message.mentioned_user_ids}"
+        )
+        
+        if not should_respond:
             return PipelineOutcome(
                 handled=False,
                 sent=False,
@@ -165,7 +173,7 @@ class ResponsePipeline:
                 )
             )
         except LlmClientError as exc:
-            self._logger.warning("llm_completion_failed error_type=%s", exc.__class__.__name__)
+            self._logger.exception(f"llm_completion_failed: {exc}")
             return PipelineOutcome(
                 handled=True,
                 sent=False,

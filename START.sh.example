@@ -1,0 +1,36 @@
+#!/bin/bash
+# Homunculus Startup Script for kovach NPC
+# Copy this to START.sh and fill in your credentials
+
+set -e
+
+cd /home/joexu/Repos/Homunculus
+
+# Activate virtual environment
+source venv/bin/activate
+
+# Export credentials - REPLACE THESE WITH YOUR OWN
+export KOVACH_DISCORD_BOT_TOKEN="YOUR_DISCORD_BOT_TOKEN_HERE"
+export ANTHROPIC_API_KEY="YOUR_ANTHROPIC_API_KEY_HERE"
+
+# Bootstrap agent directory
+if [ ! -d ~/.homunculus/agents/kovach ]; then
+  echo "Creating agent directory structure..."
+  mkdir -p ~/.homunculus/agents/kovach/{memory,qmd/xdg-config,qmd/xdg-cache,archive}
+  touch ~/.homunculus/agents/kovach/memory/MEMORY.md
+  echo "✅ Agent directory created: ~/.homunculus/agents/kovach/"
+fi
+
+# Run Homunculus
+export PYTHONPATH=/home/joexu/Repos/Homunculus/src:$PYTHONPATH
+
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  Homunculus - TTRPG NPC Agent"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  NPC: 科瓦奇 (Kovach)"
+echo "  Channel: 1472783663077785722"
+echo "  Model: claude-sonnet-4-5"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+python3 -m homunculus --config examples/kovach/config.json

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional, Protocol, Sequence
+from typing import Optional, Protocol
 import asyncio
 import logging
 import signal
@@ -20,31 +20,20 @@ class RuntimeService(Protocol):
         ...
 
 
-class IdleService:
-    """Placeholder service until concrete adapters are integrated."""
-
-    def __init__(self, logger: logging.Logger) -> None:
-        self._logger = logger
-
-    async def start(self) -> None:
-        self._logger.debug("Idle service started.")
-
-    async def stop(self) -> None:
-        self._logger.debug("Idle service stopped.")
-
-
 class RuntimeApp:
     """Application host with deterministic startup and shutdown ordering."""
 
     def __init__(
         self,
         settings: AppSettings,
-        services: Optional[Sequence[RuntimeService]] = None,
+        services: Optional[list[RuntimeService]] = None,
+        background_tasks: Optional[list[asyncio.Task]] = None,
         logger: Optional[logging.Logger] = None,
     ) -> None:
         self.settings = settings
         self.logger = logger or logging.getLogger("homunculus.runtime")
-        self._services = list(services) if services is not None else [IdleService(self.logger)]
+        self._services = services or []
+        self._background_tasks = background_tasks or []
         self._started = False
 
     async def start(self) -> None:
@@ -60,6 +49,20 @@ class RuntimeApp:
         if not self._started:
             return
 
+        # Cancel background tasks
+        for task in self._background_tasks:
+            if not task.done():
+                task.cancel()
+        
+        # Wait for tasks to finish with timeout
+        if self._background_tasks:
+            await asyncio.wait(
+                self._background_tasks,
+                timeout=5.0,
+                return_when=asyncio.ALL_COMPLETED,
+            )
+
+        # Stop services in reverse order
         for service in reversed(self._services):
             try:
                 await service.stop()
@@ -87,7 +90,7 @@ class RuntimeApp:
             self._remove_signal_handlers(added_signals)
 
     @staticmethod
-    def _install_signal_handlers(stop_event: asyncio.Event) -> Sequence[signal.Signals]:
+    def _install_signal_handlers(stop_event: asyncio.Event) -> list[signal.Signals]:
         loop = asyncio.get_running_loop()
         added = []
 
@@ -102,7 +105,7 @@ class RuntimeApp:
         return added
 
     @staticmethod
-    def _remove_signal_handlers(signals_to_remove: Sequence[signal.Signals]) -> None:
+    def _remove_signal_handlers(signals_to_remove: list[signal.Signals]) -> None:
         loop = asyncio.get_running_loop()
 
         for sig in signals_to_remove:
@@ -120,6 +123,20 @@ def configure_logging(log_level: str) -> None:
 
 
 async def run_runtime(settings: AppSettings, shutdown_event: Optional[asyncio.Event] = None) -> None:
+    from homunculus.runtime.factory import create_discord_service
+    
     configure_logging(settings.runtime.log_level)
-    app = RuntimeApp(settings=settings)
+    logger = logging.getLogger("homunculus.runtime")
+    
+    # Create Discord service and background tasks
+    discord_service, scheduler_task = await create_discord_service(settings, logger=logger)
+    
+    # Build runtime app
+    app = RuntimeApp(
+        settings=settings,
+        services=[discord_service],
+        background_tasks=[scheduler_task],
+        logger=logger,
+    )
+    
     await app.run(shutdown_event=shutdown_event)
