@@ -77,9 +77,9 @@ class RuntimeApp:
 
         await self.start()
         self.logger.info(
-            "Runtime started for NPC '%s' (channel_id=%s).",
-            self.settings.agent.npc_name,
-            self.settings.discord.channel_id,
+            "Runtime started for bot '%s' (channels=%s).",
+            self.settings.agent.bot_name,
+            self.settings.discord.channel_ids,
         )
 
         try:

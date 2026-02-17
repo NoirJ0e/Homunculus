@@ -18,11 +18,42 @@ class SettingsError(ValueError):
 
 
 @dataclass(frozen=True)
+class ChannelSettings:
+    channel_id: int
+    character_card_path: Path
+    memory_namespace: str
+    channel_name: str = ""
+    skill_ruleset: str = "coc7e"
+
+    def __post_init__(self) -> None:
+        if self.channel_id <= 0:
+            raise SettingsError("discord.channels[].channel_id must be a positive integer.")
+
+        channel_name = self.channel_name.strip()
+        memory_namespace = self.memory_namespace.strip()
+        skill_ruleset = self.skill_ruleset.strip()
+        card_path = self.character_card_path.expanduser()
+
+        if not memory_namespace:
+            raise SettingsError("discord.channels[].memory_namespace cannot be empty.")
+        if not skill_ruleset:
+            raise SettingsError("discord.channels[].skill_ruleset cannot be empty.")
+        if not str(card_path):
+            raise SettingsError("discord.channels[].character_card_path cannot be empty.")
+
+        object.__setattr__(self, "channel_name", channel_name)
+        object.__setattr__(self, "memory_namespace", memory_namespace)
+        object.__setattr__(self, "skill_ruleset", skill_ruleset)
+        object.__setattr__(self, "character_card_path", card_path)
+
+
+@dataclass(frozen=True)
 class AgentSettings:
     npc_name: str
     character_card_path: Path
     qmd_index: str
     skill_ruleset: str = "coc7e"
+    bot_name: str = ""
 
     def __post_init__(self) -> None:
         npc_name = self.npc_name.strip()
@@ -41,21 +72,26 @@ class AgentSettings:
         if not str(card_path):
             raise SettingsError("agent.character_card_path cannot be empty.")
 
+        bot_name = self.bot_name.strip()
+        if not bot_name:
+            raise SettingsError("agent.bot_name cannot be empty.")
+
         object.__setattr__(self, "npc_name", npc_name)
         object.__setattr__(self, "qmd_index", qmd_index)
         object.__setattr__(self, "skill_ruleset", skill_ruleset)
         object.__setattr__(self, "character_card_path", card_path)
+        object.__setattr__(self, "bot_name", bot_name)
 
 
 @dataclass(frozen=True)
 class DiscordSettings:
-    channel_id: int
+    channels: Tuple[ChannelSettings, ...]
     bot_token_env: str = "DISCORD_BOT_TOKEN"
     history_size: int = 25
 
     def __post_init__(self) -> None:
-        if self.channel_id <= 0:
-            raise SettingsError("discord.channel_id must be a positive integer.")
+        if not self.channels:
+            raise SettingsError("discord.channels must contain at least one channel.")
 
         if self.history_size <= 0:
             raise SettingsError("discord.history_size must be a positive integer.")
@@ -64,7 +100,24 @@ class DiscordSettings:
         if not bot_token_env:
             raise SettingsError("discord.bot_token_env cannot be empty.")
 
+        seen_ids = set()
+        for channel in self.channels:
+            if channel.channel_id in seen_ids:
+                raise SettingsError(
+                    f"Duplicate discord channel_id configured: {channel.channel_id}"
+                )
+            seen_ids.add(channel.channel_id)
+
         object.__setattr__(self, "bot_token_env", bot_token_env)
+
+    @property
+    def channel_id(self) -> int:
+        """Backward-compatible primary channel access."""
+        return self.channels[0].channel_id
+
+    @property
+    def channel_ids(self) -> Tuple[int, ...]:
+        return tuple(channel.channel_id for channel in self.channels)
 
 
 @dataclass(frozen=True)
@@ -172,6 +225,20 @@ class AppSettings:
     memory: MemorySettings
     runtime: RuntimeSettings
 
+    @property
+    def primary_channel(self) -> ChannelSettings:
+        return self.discord.channels[0]
+
+    def namespace_root(self, namespace: str) -> Path:
+        normalized = namespace.strip()
+        if not normalized:
+            raise SettingsError("memory namespace cannot be empty.")
+
+        base_root = self.runtime.data_home / "agents" / self.agent.bot_name
+        if normalized == self.agent.bot_name:
+            return base_root
+        return base_root / normalized
+
 
 def load_settings(
     config_path: Optional[Path] = None,
@@ -180,17 +247,31 @@ def load_settings(
     """Load validated settings from JSON config and environment overrides."""
 
     env = dict(environ) if environ is not None else dict(os.environ)
-    config = _load_config(config_path)
+    config = migrate_legacy_config(_load_config(config_path))
+    discord = _load_discord_settings(config=config, environ=env)
+    primary_channel = discord.channels[0]
+
+    qmd_index = _read_value(
+        config,
+        env,
+        section="agent",
+        key="qmd_index",
+        env_key="HOMUNCULUS_AGENT_QMD_INDEX",
+        caster=_as_str,
+        default=primary_channel.memory_namespace,
+    )
+    npc_name = _read_value(
+        config,
+        env,
+        section="agent",
+        key="npc_name",
+        env_key="HOMUNCULUS_AGENT_NPC_NAME",
+        caster=_as_str,
+        default=qmd_index,
+    )
 
     agent = AgentSettings(
-        npc_name=_read_value(
-            config,
-            env,
-            section="agent",
-            key="npc_name",
-            env_key="HOMUNCULUS_AGENT_NPC_NAME",
-            caster=_as_str,
-        ),
+        npc_name=npc_name,
         character_card_path=_read_value(
             config,
             env,
@@ -198,15 +279,9 @@ def load_settings(
             key="character_card_path",
             env_key="HOMUNCULUS_AGENT_CHARACTER_CARD_PATH",
             caster=_as_path,
+            default=primary_channel.character_card_path,
         ),
-        qmd_index=_read_value(
-            config,
-            env,
-            section="agent",
-            key="qmd_index",
-            env_key="HOMUNCULUS_AGENT_QMD_INDEX",
-            caster=_as_str,
-        ),
+        qmd_index=qmd_index,
         skill_ruleset=_read_value(
             config,
             env,
@@ -214,36 +289,16 @@ def load_settings(
             key="skill_ruleset",
             env_key="HOMUNCULUS_AGENT_SKILL_RULESET",
             caster=_as_str,
-            default="coc7e",
+            default=primary_channel.skill_ruleset,
         ),
-    )
-
-    discord = DiscordSettings(
-        channel_id=_read_value(
+        bot_name=_read_value(
             config,
             env,
-            section="discord",
-            key="channel_id",
-            env_key="HOMUNCULUS_DISCORD_CHANNEL_ID",
-            caster=_as_int,
-        ),
-        bot_token_env=_read_value(
-            config,
-            env,
-            section="discord",
-            key="bot_token_env",
-            env_key="HOMUNCULUS_DISCORD_BOT_TOKEN_ENV",
+            section="agent",
+            key="bot_name",
+            env_key="HOMUNCULUS_AGENT_BOT_NAME",
             caster=_as_str,
-            default="DISCORD_BOT_TOKEN",
-        ),
-        history_size=_read_value(
-            config,
-            env,
-            section="discord",
-            key="history_size",
-            env_key="HOMUNCULUS_DISCORD_HISTORY_SIZE",
-            caster=_as_int,
-            default=25,
+            default=npc_name,
         ),
     )
 
@@ -417,6 +472,43 @@ def load_settings(
     )
 
 
+def migrate_legacy_config(config: Mapping[str, Any]) -> dict[str, Any]:
+    """Convert v0.1 single-channel config into v0.2 channel list shape."""
+
+    migrated = dict(config)
+
+    discord_section = config.get("discord")
+    if discord_section is None:
+        return migrated
+    if not isinstance(discord_section, Mapping):
+        raise SettingsError("Config section 'discord' must be an object.")
+    if "channels" in discord_section or "channel_id" not in discord_section:
+        return migrated
+
+    agent_section = config.get("agent")
+    if agent_section is not None and not isinstance(agent_section, Mapping):
+        raise SettingsError("Config section 'agent' must be an object.")
+
+    channel_payload: dict[str, Any] = {
+        "channel_id": discord_section["channel_id"],
+    }
+    if isinstance(agent_section, Mapping):
+        if "character_card_path" in agent_section:
+            channel_payload["character_card_path"] = agent_section["character_card_path"]
+        if "npc_name" in agent_section:
+            channel_payload["memory_namespace"] = agent_section["npc_name"]
+        elif "qmd_index" in agent_section:
+            channel_payload["memory_namespace"] = agent_section["qmd_index"]
+        if "skill_ruleset" in agent_section:
+            channel_payload["skill_ruleset"] = agent_section["skill_ruleset"]
+
+    migrated_discord = dict(discord_section)
+    del migrated_discord["channel_id"]
+    migrated_discord["channels"] = [channel_payload]
+    migrated["discord"] = migrated_discord
+    return migrated
+
+
 def resolve_env_secret(env_name: str, environ: Optional[Mapping[str, str]] = None) -> str:
     """Resolve a secret value from environment by indirection key."""
 
@@ -440,9 +532,20 @@ def settings_summary(settings: AppSettings) -> dict:
             "character_card_path": str(settings.agent.character_card_path),
             "qmd_index": settings.agent.qmd_index,
             "skill_ruleset": settings.agent.skill_ruleset,
+            "bot_name": settings.agent.bot_name,
         },
         "discord": {
             "channel_id": settings.discord.channel_id,
+            "channels": [
+                {
+                    "channel_id": channel.channel_id,
+                    "channel_name": channel.channel_name,
+                    "character_card_path": str(channel.character_card_path),
+                    "memory_namespace": channel.memory_namespace,
+                    "skill_ruleset": channel.skill_ruleset,
+                }
+                for channel in settings.discord.channels
+            ],
             "bot_token_env": settings.discord.bot_token_env,
             "history_size": settings.discord.history_size,
         },
@@ -490,6 +593,209 @@ def _load_config(config_path: Optional[Path]) -> Mapping[str, Any]:
         raise SettingsError("Config root must be an object.")
 
     return loaded
+
+
+def _load_discord_settings(
+    *,
+    config: Mapping[str, Any],
+    environ: Mapping[str, str],
+) -> DiscordSettings:
+    channels = _load_channel_settings(config=config, environ=environ)
+    return DiscordSettings(
+        channels=channels,
+        bot_token_env=_read_value(
+            config,
+            environ,
+            section="discord",
+            key="bot_token_env",
+            env_key="HOMUNCULUS_DISCORD_BOT_TOKEN_ENV",
+            caster=_as_str,
+            default="DISCORD_BOT_TOKEN",
+        ),
+        history_size=_read_value(
+            config,
+            environ,
+            section="discord",
+            key="history_size",
+            env_key="HOMUNCULUS_DISCORD_HISTORY_SIZE",
+            caster=_as_int,
+            default=25,
+        ),
+    )
+
+
+def _load_channel_settings(
+    *,
+    config: Mapping[str, Any],
+    environ: Mapping[str, str],
+) -> Tuple[ChannelSettings, ...]:
+    configured = _parse_configured_channels(config)
+    env_channel_id = environ.get("HOMUNCULUS_DISCORD_CHANNEL_ID")
+
+    if env_channel_id not in (None, ""):
+        channel_id = _read_value(
+            config,
+            environ,
+            section="discord",
+            key="channel_id",
+            env_key="HOMUNCULUS_DISCORD_CHANNEL_ID",
+            caster=_as_int,
+        )
+        if configured:
+            first = configured[0]
+            overridden = ChannelSettings(
+                channel_id=channel_id,
+                channel_name=first.channel_name,
+                character_card_path=first.character_card_path,
+                memory_namespace=first.memory_namespace,
+                skill_ruleset=first.skill_ruleset,
+            )
+            return (overridden,) + configured[1:]
+
+        return (_build_legacy_channel(config=config, environ=environ, channel_id=channel_id),)
+
+    if configured:
+        return configured
+
+    return (_build_legacy_channel(config=config, environ=environ, channel_id=None),)
+
+
+def _parse_configured_channels(config: Mapping[str, Any]) -> Tuple[ChannelSettings, ...]:
+    discord_section = config.get("discord")
+    if discord_section is None:
+        return ()
+    if not isinstance(discord_section, Mapping):
+        raise SettingsError("Config section 'discord' must be an object.")
+
+    channels_raw = discord_section.get("channels")
+    if channels_raw is None:
+        return ()
+    if not isinstance(channels_raw, list):
+        raise SettingsError("discord.channels must be an array.")
+    if not channels_raw:
+        raise SettingsError("discord.channels cannot be empty.")
+
+    channels: list[ChannelSettings] = []
+    for index, raw_entry in enumerate(channels_raw):
+        if not isinstance(raw_entry, Mapping):
+            raise SettingsError(f"discord.channels[{index}] must be an object.")
+        channels.append(_parse_channel_entry(raw_entry, index=index))
+    return tuple(channels)
+
+
+def _parse_channel_entry(entry: Mapping[str, Any], *, index: int) -> ChannelSettings:
+    return ChannelSettings(
+        channel_id=_cast_channel_value(entry, index=index, key="channel_id", caster=_as_int),
+        channel_name=_cast_channel_value(
+            entry,
+            index=index,
+            key="channel_name",
+            caster=_as_optional_str,
+            default="",
+        )
+        or "",
+        character_card_path=_cast_channel_value(
+            entry,
+            index=index,
+            key="character_card_path",
+            caster=_as_path,
+        ),
+        memory_namespace=_cast_channel_value(
+            entry,
+            index=index,
+            key="memory_namespace",
+            caster=_as_str,
+        ),
+        skill_ruleset=_cast_channel_value(
+            entry,
+            index=index,
+            key="skill_ruleset",
+            caster=_as_str,
+            default="coc7e",
+        ),
+    )
+
+
+def _cast_channel_value(
+    entry: Mapping[str, Any],
+    *,
+    index: int,
+    key: str,
+    caster: Callable[[Any], Any],
+    default: Any = _MISSING,
+) -> Any:
+    if key in entry:
+        raw = entry[key]
+    elif default is not _MISSING:
+        raw = default
+    else:
+        raise SettingsError(f"Missing required setting 'discord.channels[{index}].{key}'.")
+
+    try:
+        return caster(raw)
+    except SettingsError:
+        raise
+    except Exception as exc:
+        raise SettingsError(
+            f"Invalid value for discord.channels[{index}].{key}: {raw!r}"
+        ) from exc
+
+
+def _build_legacy_channel(
+    *,
+    config: Mapping[str, Any],
+    environ: Mapping[str, str],
+    channel_id: Optional[int],
+) -> ChannelSettings:
+    effective_channel_id = channel_id
+    if effective_channel_id is None:
+        effective_channel_id = _read_value(
+            config,
+            environ,
+            section="discord",
+            key="channel_id",
+            env_key="HOMUNCULUS_DISCORD_CHANNEL_ID",
+            caster=_as_int,
+        )
+
+    qmd_index = _read_value(
+        config,
+        environ,
+        section="agent",
+        key="qmd_index",
+        env_key="HOMUNCULUS_AGENT_QMD_INDEX",
+        caster=_as_str,
+    )
+    npc_name = _read_value(
+        config,
+        environ,
+        section="agent",
+        key="npc_name",
+        env_key="HOMUNCULUS_AGENT_NPC_NAME",
+        caster=_as_str,
+        default=qmd_index,
+    )
+    return ChannelSettings(
+        channel_id=effective_channel_id,
+        character_card_path=_read_value(
+            config,
+            environ,
+            section="agent",
+            key="character_card_path",
+            env_key="HOMUNCULUS_AGENT_CHARACTER_CARD_PATH",
+            caster=_as_path,
+        ),
+        memory_namespace=npc_name,
+        skill_ruleset=_read_value(
+            config,
+            environ,
+            section="agent",
+            key="skill_ruleset",
+            env_key="HOMUNCULUS_AGENT_SKILL_RULESET",
+            caster=_as_str,
+            default="coc7e",
+        ),
+    )
 
 
 def _read_value(

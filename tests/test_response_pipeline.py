@@ -87,10 +87,17 @@ class _Extractor:
         self.should_fail = should_fail
         self.calls = []
 
-    def schedule_extraction(self, *, recent_messages, response_text, npc_name):
+    def schedule_extraction(
+        self,
+        *,
+        recent_messages,
+        response_text,
+        npc_name,
+        memory_namespace=None,
+    ):
         if self.should_fail:
             raise RuntimeError("schedule failed")
-        self.calls.append((tuple(recent_messages), response_text, npc_name))
+        self.calls.append((tuple(recent_messages), response_text, npc_name, memory_namespace))
 
 
 def _card():

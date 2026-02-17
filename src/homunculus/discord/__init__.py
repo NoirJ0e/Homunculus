@@ -8,7 +8,10 @@ from homunculus.discord.client import (
     DiscordMessage,
 )
 from homunculus.discord.mention_listener import MentionListener, MessageLike
-from homunculus.discord.message_handler import DiscordMessageHandler
+from homunculus.discord.message_handler import (
+    DiscordMessageHandler,
+    MultiChannelMessageHandler,
+)
 from homunculus.discord.recent_messages import RecentMessage, RecentMessageCollector
 from homunculus.discord.reply_formatter import ReplyFormatter, ReplyTemplateSettings
 from homunculus.discord.slash_commands import (
@@ -26,6 +29,7 @@ __all__ = [
     "DiscordHistoryProvider",
     "DiscordMessage",
     "DiscordMessageHandler",
+    "MultiChannelMessageHandler",
     "MentionListener",
     "MessageLike",
     "RecentMessage",

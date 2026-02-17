@@ -44,6 +44,7 @@ class MemoryExtractionScheduler(Protocol):
         recent_messages: Sequence[RecentMessage],
         response_text: str,
         npc_name: str,
+        memory_namespace: Optional[str] = None,
     ) -> object:
         ...
 
@@ -107,6 +108,7 @@ class ResponsePipeline:
         skill_rules_excerpt: str = "",
         skill_ruleset: Optional[str] = None,
         npc_name: Optional[str] = None,
+        memory_namespace: Optional[str] = None,
     ) -> PipelineOutcome:
         should_respond = self._listener.should_respond(message)
         self._logger.info(
@@ -142,7 +144,11 @@ class ResponsePipeline:
                 error_type=exc.__class__.__name__,
             )
 
-        retrieval = await self._retrieve_memories(recent_messages=recent_messages, npc_name=npc_name)
+        retrieval = await self._retrieve_memories(
+            recent_messages=recent_messages,
+            npc_name=npc_name,
+            memory_namespace=memory_namespace,
+        )
         memories = retrieval.records if retrieval.error is None else ()
         retrieval_error_type = retrieval.error.type if retrieval.error is not None else None
 
@@ -206,6 +212,7 @@ class ResponsePipeline:
                     recent_messages=recent_messages,
                     response_text=response.text,
                     npc_name=(npc_name or character_card.name),
+                    memory_namespace=memory_namespace,
                 )
             except Exception as exc:  # pragma: no cover - defensive guard
                 self._logger.warning(
@@ -242,9 +249,13 @@ class ResponsePipeline:
         *,
         recent_messages: Sequence[RecentMessage],
         npc_name: Optional[str],
+        memory_namespace: Optional[str],
     ) -> RetrievalResult:
         query = self._scene_query_builder(recent_messages)
-        return await self._memory_retriever.retrieve(query, npc_name=npc_name)
+        return await self._memory_retriever.retrieve(
+            query,
+            npc_name=(memory_namespace or npc_name),
+        )
 
 
 def _default_scene_query_builder(recent_messages: Sequence[RecentMessage]) -> str:

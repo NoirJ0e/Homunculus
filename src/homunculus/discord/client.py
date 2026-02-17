@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional, Protocol, Sequence
+from typing import Callable, Optional, Protocol, Sequence
 import asyncio
 import logging
 
@@ -154,9 +154,10 @@ class DiscordClientService:
         self,
         *,
         bot_token: str,
-        target_channel_id: int,
+        target_channel_id: Optional[int] = None,
+        target_channel_ids: Optional[Sequence[int]] = None,
         on_message_handler: OnMessageHandler,
-        on_ready_callback: Optional[callable] = None,
+        on_ready_callback: Optional[Callable[[int], None]] = None,
         logger: Optional[logging.Logger] = None,
     ) -> None:
         if discord is None:
@@ -165,7 +166,21 @@ class DiscordClientService:
             )
 
         self._bot_token = bot_token
-        self._target_channel_id = target_channel_id
+        normalized_channel_ids = []
+        if target_channel_ids:
+            normalized_channel_ids.extend(target_channel_ids)
+        if target_channel_id is not None:
+            normalized_channel_ids.append(target_channel_id)
+        if not normalized_channel_ids:
+            raise ValueError("At least one target channel ID is required.")
+
+        validated_channel_ids = set()
+        for channel_id in normalized_channel_ids:
+            if int(channel_id) <= 0:
+                raise ValueError("target_channel_ids must contain positive integers.")
+            validated_channel_ids.add(int(channel_id))
+
+        self._target_channel_ids = frozenset(validated_channel_ids)
         self._handler = on_message_handler
         self._on_ready_callback = on_ready_callback
         self._logger = logger or logging.getLogger("homunculus.discord.client")
@@ -176,12 +191,17 @@ class DiscordClientService:
         intents.guilds = True
         intents.guild_messages = True
         
-        self._logger.info(f"Intents: message_content={intents.message_content}, messages={intents.messages}, guilds={intents.guilds}")
+        self._logger.info(
+            "Intents: message_content=%s, messages=%s, guilds=%s",
+            intents.message_content,
+            intents.messages,
+            intents.guilds,
+        )
         
         self._client = discord.Client(intents=intents)
 
         self._ready_event = asyncio.Event()
-        self._target_channel: Optional[discord.TextChannel] = None
+        self._target_channels: dict[int, discord.TextChannel] = {}
         self._task: Optional[asyncio.Task] = None
 
         # Register event handlers using decorator syntax
@@ -189,24 +209,20 @@ class DiscordClientService:
         
         @self._client.event
         async def on_ready():
-            self._logger.info("EVENT: on_ready triggered!")
             await self._on_ready()
 
         @self._client.event
         async def on_message(message):
-            self._logger.info(f"EVENT: on_message from={message.author} channel={message.channel.id}")
             await self._on_message(message)
-        
-        self._logger.info("Discord event handlers registered")
 
     async def start(self) -> None:
         """Start the Discord client in the background."""
         self._task = asyncio.create_task(self._client.start(self._bot_token))
         await self._ready_event.wait()
         self._logger.info(
-            "Discord client ready: bot_user_id=%s target_channel_id=%s",
+            "Discord client ready: bot_user_id=%s target_channel_ids=%s",
             self._client.user.id if self._client.user else None,
-            self._target_channel_id,
+            sorted(self._target_channel_ids),
         )
 
     async def stop(self) -> None:
@@ -220,24 +236,24 @@ class DiscordClientService:
 
     async def _on_ready(self) -> None:
         """Called when the bot successfully connects to Discord."""
-        print(f"[DEBUG] _on_ready triggered! Bot user: {self._client.user}")
         self._logger.info("Discord client connected as %s", self._client.user)
-        
-        # Fetch target channel
-        channel = self._client.get_channel(self._target_channel_id)
-        if channel is None:
-            self._logger.error(
-                "Target channel %s not found or bot lacks access.",
-                self._target_channel_id,
-            )
-        elif not isinstance(channel, discord.TextChannel):
-            self._logger.error(
-                "Target channel %s is not a text channel.",
-                self._target_channel_id,
-            )
-        else:
-            self._target_channel = channel
-            self._logger.info("Target channel acquired: %s", channel.name)
+
+        for channel_id in sorted(self._target_channel_ids):
+            channel = self._client.get_channel(channel_id)
+            if channel is None:
+                self._logger.error(
+                    "Target channel %s not found or bot lacks access.",
+                    channel_id,
+                )
+                continue
+            if not isinstance(channel, discord.TextChannel):
+                self._logger.error(
+                    "Target channel %s is not a text channel.",
+                    channel_id,
+                )
+                continue
+            self._target_channels[channel_id] = channel
+            self._logger.info("Target channel acquired: id=%s name=%s", channel_id, channel.name)
         
         # Invoke ready callback with bot user ID
         if self._on_ready_callback is not None and self._client.user is not None:
@@ -251,34 +267,18 @@ class DiscordClientService:
     async def _on_message(self, message: discord.Message) -> None:
         """Handle incoming Discord messages."""
         try:
-            self._logger.info(
-                f"_on_message: channel={message.channel.id}, author={message.author}, "
-                f"content='{message.content}', mentions={[u.id for u in message.mentions]}, "
-                f"role_mentions={[r.id for r in message.role_mentions]}, "
-                f"raw_mentions={message.raw_mentions}"
-            )
-            
-            if self._target_channel is None:
-                self._logger.warning("Target channel not set, ignoring message")
+            if message.channel.id not in self._target_channel_ids:
                 return
 
-            self._logger.info(f"Converting message to internal format...")
-            
             # Collect user mentions + role mentions (for bots that have same-named roles)
             mentioned_ids = set(user.id for user in message.mentions)
-            
-            # If bot has a same-named role, role mentions should also trigger
-            # Check if any role mentions match the bot's username pattern
             if message.role_mentions:
                 bot_user = self._client.user
                 if bot_user:
                     for role in message.role_mentions:
-                        # If role name matches bot name, treat as bot mention
                         if role.name == bot_user.name or role.name == bot_user.display_name:
                             mentioned_ids.add(bot_user.id)
-                            self._logger.info(f"Role mention '{role.name}' treated as bot mention")
-            
-            # Convert discord.Message to our internal format
+
             internal_message = DiscordMessage(
                 message_id=message.id,
                 channel_id=message.channel.id,
@@ -290,18 +290,24 @@ class DiscordClientService:
                 mentioned_user_ids=tuple(mentioned_ids),
             )
 
-            self._logger.info(f"Creating providers...")
-            # Create providers for this message
-            history_provider = DiscordHistoryProvider(self._target_channel)
-            sender = DiscordChannelSender(self._target_channel, logger=self._logger)
+            channel = self._target_channels.get(message.channel.id)
+            if channel is None and isinstance(message.channel, discord.TextChannel):
+                channel = message.channel
+                self._target_channels[message.channel.id] = channel
+            if channel is None:
+                self._logger.warning(
+                    "Skipping message for target channel_id=%s because channel is unavailable.",
+                    message.channel.id,
+                )
+                return
 
-            self._logger.info(f"Invoking handler...")
-            # Invoke handler
+            history_provider = DiscordHistoryProvider(channel)
+            sender = DiscordChannelSender(channel, logger=self._logger)
+
             await self._handler.handle(
                 message=internal_message,
                 history_provider=history_provider,
                 sender=sender,
             )
-            self._logger.info("Handler completed successfully")
-        except Exception as e:
-            self._logger.exception(f"Message handler failed: {e}")
+        except Exception:
+            self._logger.exception("Message handler failed")

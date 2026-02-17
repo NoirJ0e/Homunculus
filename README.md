@@ -125,12 +125,21 @@ Edit `examples/kovach/config.json`:
 {
   "agent": {
     "npc_name": "科瓦奇",
+    "bot_name": "kovach-bot",
     "character_card_path": "./examples/kovach/character-card.json",
     "qmd_index": "kovach",
     "skill_ruleset": "coc7e"
   },
   "discord": {
-    "channel_id": YOUR_CHANNEL_ID,
+    "channels": [
+      {
+        "channel_id": YOUR_CHANNEL_ID,
+        "channel_name": "campaign-1",
+        "character_card_path": "./examples/kovach/character-card.json",
+        "memory_namespace": "kovach",
+        "skill_ruleset": "coc7e"
+      }
+    ],
     "bot_token_env": "KOVACH_DISCORD_BOT_TOKEN"
   },
   "model": {
@@ -159,8 +168,8 @@ Expected output:
   Model: claude-haiku-4-5 (via OpenClaw agent: homunculus)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-✅ Discord client ready: bot_user_id=... target_channel_id=...
-✅ Runtime started for NPC 'kovach'
+✅ Discord client ready: bot_user_id=... target_channel_ids=[...]
+✅ Runtime started for bot 'kovach-bot'
 ```
 
 ## Usage

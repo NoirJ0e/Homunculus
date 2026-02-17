@@ -57,12 +57,15 @@ class QmdAdapter:
         self,
         settings: AppSettings,
         *,
+        namespace: Optional[str] = None,
         logger: Optional[logging.Logger] = None,
         command_runner: Optional[CommandRunner] = None,
         max_query_chars: int = 600,
         environ: Optional[Mapping[str, str]] = None,
     ) -> None:
         self._settings = settings
+        normalized_namespace = namespace.strip() if namespace is not None else None
+        self._namespace = normalized_namespace or None
         self._logger = logger or logging.getLogger("homunculus.memory.qmd")
         self._command_runner = command_runner or _run_qmd_command
         self._max_query_chars = max_query_chars
@@ -87,8 +90,13 @@ class QmdAdapter:
                 ),
             )
 
-        effective_npc_name = (npc_name or self._settings.agent.npc_name).strip()
-        if not effective_npc_name:
+        effective_namespace = (
+            self._namespace
+            or npc_name
+            or self._settings.agent.qmd_index
+            or self._settings.agent.npc_name
+        ).strip()
+        if not effective_namespace:
             return RetrievalResult(
                 records=(),
                 mode=None,
@@ -105,7 +113,7 @@ class QmdAdapter:
                 error=RetrievalError(type="invalid_top_k", message="top_k must be > 0."),
             )
 
-        env = self._build_env(effective_npc_name)
+        env = self._build_env(effective_namespace)
 
         query_attempt = await self._attempt(
             mode="query",
@@ -227,8 +235,8 @@ class QmdAdapter:
             latency_ms=command_result.latency_ms,
         )
 
-    def _build_env(self, npc_name: str) -> Mapping[str, str]:
-        qmd_root = self._settings.runtime.data_home / "agents" / npc_name / "qmd"
+    def _build_env(self, namespace: str) -> Mapping[str, str]:
+        qmd_root = self._settings.namespace_root(namespace) / "qmd"
         env = dict(self._environ)
         env["XDG_CONFIG_HOME"] = str(qmd_root / "xdg-config")
         env["XDG_CACHE_HOME"] = str(qmd_root / "xdg-cache")

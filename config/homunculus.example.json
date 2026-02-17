@@ -1,12 +1,21 @@
 {
   "agent": {
     "npc_name": "kovach",
+    "bot_name": "kovach",
     "character_card_path": "./agents/kovach/card.json",
     "qmd_index": "kovach",
     "skill_ruleset": "coc7e"
   },
   "discord": {
-    "channel_id": 123456789012345678,
+    "channels": [
+      {
+        "channel_id": 123456789012345678,
+        "channel_name": "game-table-1",
+        "character_card_path": "./agents/kovach/card.json",
+        "memory_namespace": "kovach",
+        "skill_ruleset": "coc7e"
+      }
+    ],
     "bot_token_env": "DISCORD_BOT_TOKEN"
   },
   "model": {

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Mapping, Optional, Protocol
 import logging
 
 from homunculus.character_card import CharacterCard
@@ -19,11 +19,13 @@ class DiscordMessageHandler:
         character_card: CharacterCard,
         pipeline: ResponsePipeline,
         skill_ruleset: str = "coc7e",
+        memory_namespace: Optional[str] = None,
         logger: Optional[logging.Logger] = None,
     ) -> None:
         self._character_card = character_card
         self._pipeline = pipeline
         self._skill_ruleset = skill_ruleset
+        self._memory_namespace = memory_namespace.strip() if memory_namespace else None
         self._logger = logger or logging.getLogger("homunculus.discord.handler")
 
     async def handle(
@@ -56,6 +58,7 @@ class DiscordMessageHandler:
                 character_card=self._character_card,
                 skill_ruleset=self._skill_ruleset,
                 npc_name=self._character_card.name,
+                memory_namespace=self._memory_namespace,
             )
 
             self._logger.info(
@@ -72,3 +75,49 @@ class DiscordMessageHandler:
         finally:
             # Always stop typing when done
             await sender.stop_typing()
+
+
+class RoutedMessageHandler(Protocol):
+    async def handle(
+        self,
+        *,
+        message: MessageLike,
+        history_provider: "DiscordHistoryProvider",
+        sender: ChannelSender,
+    ) -> None:
+        ...
+
+
+class MultiChannelMessageHandler:
+    """Routes incoming Discord messages to a channel-specific handler."""
+
+    def __init__(
+        self,
+        *,
+        handlers_by_channel: Mapping[int, RoutedMessageHandler],
+        logger: Optional[logging.Logger] = None,
+    ) -> None:
+        if not handlers_by_channel:
+            raise ValueError("handlers_by_channel cannot be empty.")
+        self._handlers_by_channel = dict(handlers_by_channel)
+        self._logger = logger or logging.getLogger("homunculus.discord.multi_handler")
+
+    async def handle(
+        self,
+        *,
+        message: MessageLike,
+        history_provider: "DiscordHistoryProvider",
+        sender: ChannelSender,
+    ) -> None:
+        handler = self._handlers_by_channel.get(message.channel_id)
+        if handler is None:
+            self._logger.warning(
+                "Message received for unconfigured channel_id=%s",
+                message.channel_id,
+            )
+            return
+        await handler.handle(
+            message=message,
+            history_provider=history_provider,
+            sender=sender,
+        )

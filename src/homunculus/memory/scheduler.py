@@ -29,17 +29,25 @@ class QmdIndexScheduler:
         self,
         *,
         settings: AppSettings,
+        namespace: Optional[str] = None,
         logger: Optional[logging.Logger] = None,
         command_runner: Optional[CommandRunner] = None,
         environ: Optional[Mapping[str, str]] = None,
     ) -> None:
         self._settings = settings
+        normalized_namespace = namespace.strip() if namespace is not None else None
+        self._namespace = normalized_namespace or None
         self._logger = logger or logging.getLogger("homunculus.memory.scheduler")
         self._command_runner = command_runner or _run_command
         self._environ = dict(environ) if environ is not None else dict(os.environ)
 
     async def run_once(self, *, npc_name: Optional[str] = None) -> bool:
-        name = (npc_name or self._settings.agent.npc_name).strip()
+        name = (
+            self._namespace
+            or npc_name
+            or self._settings.agent.qmd_index
+            or self._settings.agent.npc_name
+        ).strip()
         if not name:
             self._logger.warning("qmd_index_cycle_skipped reason=empty_npc_name")
             return False
@@ -77,7 +85,7 @@ class QmdIndexScheduler:
                 continue
 
     def _build_env(self, npc_name: str) -> Mapping[str, str]:
-        qmd_root = self._settings.runtime.data_home / "agents" / npc_name / "qmd"
+        qmd_root = self._settings.namespace_root(npc_name) / "qmd"
         env = dict(self._environ)
         env["XDG_CONFIG_HOME"] = str(qmd_root / "xdg-config")
         env["XDG_CACHE_HOME"] = str(qmd_root / "xdg-cache")

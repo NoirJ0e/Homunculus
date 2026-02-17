@@ -21,11 +21,14 @@ class MemoryExtractor:
         *,
         settings: AppSettings,
         llm_client: LlmClient,
+        namespace: Optional[str] = None,
         logger: Optional[logging.Logger] = None,
         now_provider: Optional[Callable[[], datetime]] = None,
     ) -> None:
         self._settings = settings
         self._llm_client = llm_client
+        normalized_namespace = namespace.strip() if namespace is not None else None
+        self._namespace = normalized_namespace or None
         self._logger = logger or logging.getLogger("homunculus.memory.extractor")
         self._now_provider = now_provider or (lambda: datetime.now(timezone.utc))
 
@@ -35,12 +38,14 @@ class MemoryExtractor:
         recent_messages: Sequence[RecentMessage],
         response_text: str,
         npc_name: str,
+        memory_namespace: Optional[str] = None,
     ) -> asyncio.Task:
         return asyncio.create_task(
             self.extract_and_append(
                 recent_messages=recent_messages,
                 response_text=response_text,
                 npc_name=npc_name,
+                memory_namespace=memory_namespace,
             )
         )
 
@@ -50,6 +55,7 @@ class MemoryExtractor:
         recent_messages: Sequence[RecentMessage],
         response_text: str,
         npc_name: str,
+        memory_namespace: Optional[str] = None,
     ) -> bool:
         if not npc_name.strip():
             self._logger.warning("memory_extraction_skipped reason=empty_npc_name")
@@ -75,7 +81,17 @@ class MemoryExtractor:
                 return False
 
             timestamp = self._now_provider()
-            path = _daily_memory_path(self._settings.runtime.data_home, npc_name, timestamp)
+            effective_namespace = (
+                memory_namespace
+                or self._namespace
+                or npc_name
+                or self._settings.agent.qmd_index
+            ).strip()
+            if not effective_namespace:
+                self._logger.warning("memory_extraction_skipped reason=empty_namespace")
+                return False
+
+            path = _daily_memory_path(self._settings, effective_namespace, timestamp)
             path.parent.mkdir(parents=True, exist_ok=True)
 
             entry = f"\n## {timestamp.isoformat()}\n{facts}\n"
@@ -120,7 +136,7 @@ def _build_extraction_user_prompt(
     return "\n".join(lines).strip()
 
 
-def _daily_memory_path(data_home: Path, npc_name: str, now: datetime) -> Path:
-    safe_npc = npc_name.strip()
+def _daily_memory_path(settings: AppSettings, namespace: str, now: datetime) -> Path:
+    safe_namespace = namespace.strip()
     filename = f"{now.date().isoformat()}.md"
-    return data_home / "agents" / safe_npc / "memory" / "memory" / filename
+    return settings.namespace_root(safe_namespace) / "memory" / "memory" / filename
