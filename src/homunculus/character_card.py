@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence, Tuple
 import json
+import warnings
 
 
 _REQUIRED_TOP_LEVEL_FIELDS = (
@@ -17,19 +18,24 @@ _REQUIRED_TOP_LEVEL_FIELDS = (
     "skills",
     "inventory",
 )
-_REQUIRED_STATS_FIELDS = (
-    "STR",
-    "CON",
-    "DEX",
-    "INT",
-    "POW",
-    "APP",
-    "SIZ",
-    "EDU",
-    "HP",
-    "SAN",
-    "MP",
+_SUPPORTED_SYSTEMS = ("coc7e", "dnd5e")
+
+_COC7E_REQUIRED_STATS = (
+    "STR", "CON", "DEX", "INT", "POW", "APP", "SIZ", "EDU", "HP", "SAN", "MP",
 )
+_COC7E_STAT_RANGES: dict[str, tuple[int, int]] = {
+    stat: (0, 100) for stat in _COC7E_REQUIRED_STATS
+}
+
+_DND5E_REQUIRED_STATS = (
+    "STR", "DEX", "CON", "INT", "WIS", "CHA", "AC", "HP", "proficiency_bonus", "level",
+)
+_DND5E_STAT_RANGES: dict[str, tuple[int, int]] = {
+    "STR": (1, 30), "DEX": (1, 30), "CON": (1, 30),
+    "INT": (1, 30), "WIS": (1, 30), "CHA": (1, 30),
+    "AC": (1, 30), "HP": (1, 999),
+    "proficiency_bonus": (1, 10), "level": (1, 20),
+}
 
 
 @dataclass(frozen=True)
@@ -56,6 +62,7 @@ class CharacterCardValidationError(ValueError):
 
 @dataclass(frozen=True)
 class CharacterCard:
+    system: str
     name: str
     description: str
     personality: str
@@ -90,13 +97,25 @@ def parse_character_card(payload: Any) -> CharacterCard:
             [ValidationIssue("$", "invalid_type", "Character card root must be an object.")]
         )
 
-    unknown_fields = sorted(set(payload.keys()) - set(_REQUIRED_TOP_LEVEL_FIELDS))
+    _allowed_top_level = set(_REQUIRED_TOP_LEVEL_FIELDS) | {"system"}
+    unknown_fields = sorted(set(payload.keys()) - _allowed_top_level)
     for field in unknown_fields:
         issues.append(ValidationIssue(field, "unknown_field", "Unknown field is not allowed."))
 
     missing_fields = sorted(set(_REQUIRED_TOP_LEVEL_FIELDS) - set(payload.keys()))
     for field in missing_fields:
         issues.append(ValidationIssue(field, "missing_field", "Required field is missing."))
+
+    if "system" not in payload:
+        warnings.warn(
+            "Character card missing 'system' field; defaulting to 'coc7e'. "
+            "This will become required in a future version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        system = "coc7e"
+    else:
+        system = _validate_system(payload["system"], issues)
 
     name = _validate_non_empty_string("name", payload.get("name"), issues) if "name" in payload else ""
     description = (
@@ -115,7 +134,7 @@ def parse_character_card(payload: Any) -> CharacterCard:
         else ""
     )
 
-    stats = _validate_stats(payload.get("stats"), issues) if "stats" in payload else {}
+    stats = _validate_stats(payload.get("stats"), system, issues) if "stats" in payload else {}
     skills = _validate_skills(payload.get("skills"), issues) if "skills" in payload else {}
     inventory = _validate_inventory(payload.get("inventory"), issues) if "inventory" in payload else ()
 
@@ -123,6 +142,7 @@ def parse_character_card(payload: Any) -> CharacterCard:
         raise CharacterCardValidationError(issues)
 
     return CharacterCard(
+        system=system,
         name=name,
         description=description,
         personality=personality,
@@ -131,6 +151,18 @@ def parse_character_card(payload: Any) -> CharacterCard:
         skills=skills,
         inventory=inventory,
     )
+
+
+def _validate_system(value: Any, issues: list) -> str:
+    if not isinstance(value, str):
+        issues.append(ValidationIssue("system", "invalid_type", "Expected a string value."))
+        return "coc7e"
+    normalized = value.strip().lower()
+    if normalized not in _SUPPORTED_SYSTEMS:
+        allowed = ", ".join(_SUPPORTED_SYSTEMS)
+        issues.append(ValidationIssue("system", "unsupported_system", f"Must be one of: {allowed}."))
+        return normalized
+    return normalized
 
 
 def _validate_non_empty_string(field: str, value: Any, issues: list) -> str:
@@ -146,28 +178,36 @@ def _validate_non_empty_string(field: str, value: Any, issues: list) -> str:
     return normalized
 
 
-def _validate_stats(value: Any, issues: list) -> Mapping[str, int]:
+def _validate_stats(value: Any, system: str, issues: list) -> Mapping[str, int]:
     if not isinstance(value, Mapping):
         issues.append(ValidationIssue("stats", "invalid_type", "Expected an object for stats."))
         return {}
 
-    unknown = sorted(set(value.keys()) - set(_REQUIRED_STATS_FIELDS))
+    if system == "dnd5e":
+        required = _DND5E_REQUIRED_STATS
+        ranges = _DND5E_STAT_RANGES
+    else:
+        required = _COC7E_REQUIRED_STATS
+        ranges = _COC7E_STAT_RANGES
+
+    unknown = sorted(set(value.keys()) - set(required))
     for key in unknown:
         issues.append(ValidationIssue(f"stats.{key}", "unknown_field", "Unknown stat is not allowed."))
 
-    missing = sorted(set(_REQUIRED_STATS_FIELDS) - set(value.keys()))
+    missing = sorted(set(required) - set(value.keys()))
     for key in missing:
         issues.append(ValidationIssue(f"stats.{key}", "missing_field", "Required stat is missing."))
 
     stats = {}
-    for key in _REQUIRED_STATS_FIELDS:
+    for key in required:
         if key not in value:
             continue
+        minimum, maximum = ranges[key]
         stat_value = _validate_int_range(
             field=f"stats.{key}",
             value=value[key],
-            minimum=0,
-            maximum=100,
+            minimum=minimum,
+            maximum=maximum,
             issues=issues,
         )
         if stat_value is not None:

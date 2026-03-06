@@ -15,6 +15,7 @@ from homunculus.character_card import (
 
 def _valid_card_payload():
     return {
+        "system": "coc7e",
         "name": "Kovach",
         "description": "A quiet veteran with an old scar over his left eye.",
         "personality": "Cautious and loyal.",
