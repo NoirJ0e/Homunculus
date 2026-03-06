@@ -72,6 +72,7 @@ def _normalize_npc_name(value: str) -> str:
 def _character_card_template(npc_name: str) -> str:
     return (
         "{\n"
+        "  \"system\": \"coc7e\",\n"
         f"  \"name\": \"{npc_name}\",\n"
         "  \"description\": \"\",\n"
         "  \"personality\": \"\",\n"
