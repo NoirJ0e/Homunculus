@@ -16,6 +16,7 @@ from homunculus.prompt.builder import PromptBuilder
 def _card():
     return parse_character_card(
         {
+            "system": "coc7e",
             "name": "Kovach",
             "description": "A scarred veteran.",
             "personality": "Cautious and loyal.",
