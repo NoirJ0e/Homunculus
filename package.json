@@ -15,6 +15,7 @@
     "vitest": "^2.0.5"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.100.1"
+    "@anthropic-ai/sdk": "^0.100.1",
+    "discord.js": "^14.26.4"
   }
 }
