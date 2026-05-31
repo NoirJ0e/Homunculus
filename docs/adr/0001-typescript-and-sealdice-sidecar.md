@@ -1,6 +1,6 @@
-# 1. 技术栈用 TypeScript，骰子/规则用 SealDice 作 Go 边车
+# 1. 技术栈用 TypeScript；骰子 v1 用 TS 原生，SealDice 延后
 
-- 状态：Accepted
+- 状态：Accepted（2026-06-01 修订骰子方向，见下"2026-06-01 修订"）
 - 日期：2026-06-01
 
 ## 背景
@@ -25,3 +25,20 @@ v1 是 Python。v2 重构需要定主体语言；并需要一套骰子 + 按系�
 - v2 是多语言部署（TS 主体 + Go 边车），需进程编排。
 - 需要一层 **branch-snapshot 垫片**：SealDice 不懂我们的 git 分支，fork/discard/merge 时要快照/还原/落定它持有的卡状态。（寄存待实现。）
 - 角色卡的"成长真相"在 SealDice 里，不在我们引擎——canonicity 必须经垫片间接管控。
+
+## 2026-06-01 修订：骰子 v1 用 TS 原生，SealDice 延后
+
+对 sealdice-core 做了源码级调研，推翻了"v1 即接 SealDice 边车"的隐含假设：
+
+- **SealDice 没有干净的"投骰→结构化结果"HTTP 接口**。它的 HTTP（`/sd-api`，端口 3211）是 **web 管理 UI 的 API**，不是投骰 API。真正的投骰只有两条缝：① OneBot v11 反向 WS（假装成聊天平台喂消息、解析它的文字回复）；② 内部 UI 端点 `dice/exec` + 轮询 `dice/recentMessage`（异步 send-then-poll、~500ms 限流、单一假用户身份、返回渲染文字而非 JSON）。两者都**脆且非结构化**。
+- **`sealdice-core/dice` 不能当库 import**：投骰逻辑与 DB（CGO SQLite）、所有 IM 适配器焊死在一个巨包里，调一次投骰要 `*MsgContext` + `*Dice` + DB-backed `AttrsManager`。
+- 底层引擎 **`github.com/sealdice/dicescript`（Apache-2.0）可以干净 import**，属性靠回调注入——这是**未来**若要接 SealDice 规则的正路（写个薄 Go 边车 import dicescript，而非 import sealdice-core，也非凭空假设的 `POST /roll`）。
+- 早前 `http-sealdice` 适配器假设的 `POST /roll → {total,success,detail}` 契约**在 SealDice 中并不存在**，是凭空设想。
+
+**修订决策**：
+- **v1 骰子用 TS 原生实现**：在 TS 引擎内实现 DND5e/COC7 的检定语义（`.ra <技能>` → 对卡判定 → 结构化结果）。角色卡的机械数值 v1 也先放我们自己的 SoulStore，不引入 SealDice 双头权威。
+- SealDicePort 的**抽象边界保留**（端口仍在），但 v1 的实现是 TS 原生 `NativeDice`，不是 SealDice 边车。
+- **接真 SealDice 延后**：等多智能体核心验证后再决定是否值得；届时正路是边车 import `dicescript` + 注入我们持有的属性，或 OneBot 假装适配器——而非已删的 `POST /roll` 设想。
+- 由此 [ADR-0002] "骰子是 SealDice 唯一写权威" 在 v1 暂由 TS 原生骰子承担"唯一机械裁决口子"的角色；语义不变（角色只发检定意图、引擎/骰子裁决），只是实现换人。
+
+落地见新切片 D（TS 原生骰子 + 检定流工具化）。原 issue #5（SealDice HTTP 适配器）的实现部分作废，见其变更评论。
