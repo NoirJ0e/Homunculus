@@ -1,11 +1,12 @@
-import type { ActorId, SceneId } from "../domain/ids.js";
+import { actorId as brandActor, type ActorId, type SceneId } from "../domain/ids.js";
 import type { Post } from "../domain/post.js";
-import type { TurnContext } from "../domain/agent.js";
+import type { TurnContext, SceneEffect } from "../domain/agent.js";
 import type { AgentPort } from "../ports/agent.js";
 import type { SubstratePort } from "../ports/substrate.js";
 import type { SealDicePort } from "../ports/sealdice.js";
 import type { HumanInboxPort } from "../ports/human-inbox.js";
 import type { Roster, ActorKind } from "./roster.js";
+import { SceneBook } from "./scenes.js";
 import { classifyBeat, pauseFrom, type TurnOutcome, type PauseState } from "./pacing.js";
 
 /** Ports the engine drives. It depends only on these interfaces — never on a
@@ -18,6 +19,10 @@ export interface EngineDeps {
   readonly dice: SealDicePort;
   readonly roster?: Roster;
   readonly humanInbox?: HumanInboxPort;
+  /** Initial scene membership (sceneId → actor ids). Defaults to empty; the
+   *  AIDM grows/shrinks it via `effects`. With no scenes configured the engine
+   *  behaves single-scene (every actor sees everything — #14 behaviour). */
+  readonly scenes?: Record<string, readonly string[]>;
 }
 
 /** Observable authoritative state transitions of a beat (ADR-0003 pacing). */
@@ -57,16 +62,33 @@ export type BeatResult =
  * (a silent human) and the beat becomes a serializable pause.
  */
 export class Engine {
-  private readonly transcript: Post[] = [];
+  private readonly scenes = new SceneBook();
+  /** Scene-scoped visibility is active once any membership is configured. Until
+   *  then the engine is single-scene / all-visible (the #14 behaviour). */
+  private readonly scoped: boolean;
 
-  constructor(private readonly deps: EngineDeps) {}
+  constructor(private readonly deps: EngineDeps) {
+    const config = deps.scenes ?? {};
+    this.scoped = Object.keys(config).length > 0;
+    for (const [scene, members] of Object.entries(config)) {
+      for (const member of members) {
+        this.scenes.addMember(scene as SceneId, brandActor(member));
+      }
+    }
+  }
+
+  /** Canonical scene membership (for inspection / assertions). */
+  membersOf(scene: SceneId): ActorId[] {
+    return [...this.scenes.membersOf(scene)];
+  }
 
   async runBeat(req: BeatRequest): Promise<BeatResult> {
     const { sceneId, aidmId } = req;
     const events: EngineEvent[] = [];
 
     // 1. The AIDM narrates and either advances or hands the beat off.
-    const opening = await this.deps.agent.takeTurn(this.ctx(sceneId, aidmId));
+    const opening = await this.deps.agent.takeTurn(this.ctx(sceneId, aidmId, true));
+    this.applyEffects(opening.effects);
     await this.post(sceneId, aidmId, opening.prose);
     if (opening.control?.kind !== "awaiting") {
       return { status: "advanced", events };
@@ -97,10 +119,19 @@ export class Engine {
 
     // 4. Released: wake the AIDM to advance.
     events.push({ kind: "barrier-released" });
-    const advance = await this.deps.agent.takeTurn(this.ctx(sceneId, aidmId));
+    const advance = await this.deps.agent.takeTurn(this.ctx(sceneId, aidmId, true));
+    this.applyEffects(advance.effects);
     await this.post(sceneId, aidmId, advance.prose);
     events.push({ kind: "aidm-woke" });
     return { status: "advanced", events };
+  }
+
+  private applyEffects(effects: readonly SceneEffect[] | undefined): void {
+    if (!effects) return;
+    for (const e of effects) {
+      if (e.kind === "add-member") this.scenes.addMember(e.sceneId, e.actor);
+      else this.scenes.removeMember(e.sceneId, e.actor);
+    }
   }
 
   private async resolveHuman(
@@ -151,14 +182,18 @@ export class Engine {
     return this.deps.roster ? this.deps.roster.kindOf(actor) : "ai";
   }
 
-  private ctx(sceneId: SceneId, actorId: ActorId): TurnContext {
-    return { sceneId, actorId, transcript: [...this.transcript] };
+  /** Assemble what an actor sees. The AIDM (omniscient) and the unscoped #14
+   *  mode see the full record; everyone else sees only their scene horizon. */
+  private ctx(sceneId: SceneId, actorId: ActorId, omniscient = false): TurnContext {
+    const transcript =
+      omniscient || !this.scoped ? [...this.scenes.fullLog()] : this.scenes.horizon(actorId);
+    return { sceneId, actorId, transcript };
   }
 
   private async post(sceneId: SceneId, actorId: ActorId, prose: string | undefined): Promise<void> {
     if (prose === undefined) return;
     const p: Post = { sceneId, actorId, prose };
-    this.transcript.push(p);
+    this.scenes.record(p);
     await this.deps.substrate.emit(p);
   }
 }
