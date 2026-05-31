@@ -1,5 +1,6 @@
 import type { ActorId, SceneId } from "./ids.js";
 import type { Post } from "./post.js";
+import type { PersonaCore, EpisodicMemory } from "./soul.js";
 
 /**
  * Control signals are the out-of-band pacing channel of ADR-0003. Only the
@@ -56,6 +57,10 @@ export interface AgentResponse {
 export interface TurnContext {
   readonly sceneId: SceneId;
   readonly actorId: ActorId;
-  /** Posts visible to this actor so far (no visibility filtering yet — see #6). */
+  /** Posts visible to this actor: its scene horizon (#6). */
   readonly transcript: readonly Post[];
+  /** Resident persona core — always present for a soul-backed actor (#7). */
+  readonly persona?: PersonaCore;
+  /** Recalled episodic memories relevant to this turn (#7). */
+  readonly memories?: readonly EpisodicMemory[];
 }

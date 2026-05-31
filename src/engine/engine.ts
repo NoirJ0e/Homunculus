@@ -16,6 +16,8 @@ import {
   type MilestoneCursorState,
 } from "./milestone-cursor.js";
 import { initClock, tick, dmView, type WorldClockState } from "./world-clock.js";
+import { recall } from "./memory.js";
+import type { SoulStore } from "../ports/soul-store.js";
 
 /** Ports the engine drives. It depends only on these interfaces — never on a
  *  concrete LLM / Discord / SealDice, which keeps the engine pure and testable.
@@ -34,6 +36,9 @@ export interface EngineDeps {
   /** The plot spine (ADR-0007). When present, the engine tracks a milestone
    *  cursor and the campaign's world clocks. */
   readonly campaign?: CampaignBible;
+  /** Soul store (ADR-0004). When present, soul-backed actors get their resident
+   *  persona core + recalled episodic memory assembled into their context. */
+  readonly souls?: SoulStore;
 }
 
 /** Observable authoritative state transitions of a beat (ADR-0003 pacing). */
@@ -278,11 +283,22 @@ export class Engine {
   }
 
   /** Assemble what an actor sees. The AIDM (omniscient) and the unscoped #14
-   *  mode see the full record; everyone else sees only their scene horizon. */
+   *  mode see the full record; everyone else sees only their scene horizon.
+   *  Soul-backed actors also get their resident persona core + recalled memory. */
   private ctx(sceneId: SceneId, actorId: ActorId, omniscient = false): TurnContext {
     const transcript =
       omniscient || !this.scoped ? [...this.scenes.fullLog()] : this.scenes.horizon(actorId);
-    return { sceneId, actorId, transcript };
+    const soul = omniscient ? undefined : this.deps.souls?.load(actorId);
+    if (!soul) return { sceneId, actorId, transcript };
+    // A soul only holds memories of scenes it lived through, so recency recall
+    // over its own memories is already scene-scoped (ADR-0004/0005).
+    return {
+      sceneId,
+      actorId,
+      transcript,
+      persona: soul.personaCore,
+      memories: recall(soul, { limit: 8 }),
+    };
   }
 
   private async post(sceneId: SceneId, actorId: ActorId, prose: string | undefined): Promise<void> {
