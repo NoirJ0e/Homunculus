@@ -8,12 +8,19 @@ import type { AgentPort } from "../../ports/agent.js";
  */
 export class FakeAgent implements AgentPort {
   private readonly scripts = new Map<string, AgentResponse[]>();
+  private readonly gates: Record<string, boolean>;
   readonly seen: TurnContext[] = [];
 
-  constructor(scripts: Record<string, AgentResponse[]>) {
+  /**
+   * @param scripts per-actor queue of responses, consumed in order.
+   * @param gates   per-actor wake-gate verdict (`false` = filtered out). When
+   *                an actor is absent here it always speaks.
+   */
+  constructor(scripts: Record<string, AgentResponse[]>, gates: Record<string, boolean> = {}) {
     for (const [id, responses] of Object.entries(scripts)) {
       this.scripts.set(id, [...responses]);
     }
+    this.gates = gates;
   }
 
   async takeTurn(ctx: TurnContext): Promise<AgentResponse> {
@@ -23,5 +30,9 @@ export class FakeAgent implements AgentPort {
       throw new Error(`FakeAgent: no scripted response left for actor "${ctx.actorId}"`);
     }
     return queue.shift()!;
+  }
+
+  async shouldSpeak(ctx: TurnContext): Promise<boolean> {
+    return this.gates[ctx.actorId] ?? true;
   }
 }

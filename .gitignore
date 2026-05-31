@@ -72,3 +72,6 @@ agents/*/memory/
 node_modules/
 dist/
 *.tsbuildinfo
+
+# agent worktrees / local state
+.claude/
