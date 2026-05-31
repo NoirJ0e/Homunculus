@@ -17,7 +17,11 @@ export type ControlSignal =
  */
 export type SceneEffect =
   | { readonly kind: "add-member"; readonly sceneId: SceneId; readonly actor: ActorId }
-  | { readonly kind: "remove-member"; readonly sceneId: SceneId; readonly actor: ActorId };
+  | { readonly kind: "remove-member"; readonly sceneId: SceneId; readonly actor: ActorId }
+  // Plot-spine writes (ADR-0007), all judged by the AIDM:
+  | { readonly kind: "complete-milestone" }
+  | { readonly kind: "discover-lead"; readonly lead: string }
+  | { readonly kind: "advance-clock"; readonly clockId: string };
 
 /**
  * What an actor (AIDM or NPC) returns when asked to take its turn.

@@ -6,8 +6,16 @@ import type { SubstratePort } from "../ports/substrate.js";
 import type { SealDicePort } from "../ports/sealdice.js";
 import type { HumanInboxPort } from "../ports/human-inbox.js";
 import type { Roster, ActorKind } from "./roster.js";
+import type { CampaignBible } from "../domain/campaign.js";
 import { SceneBook } from "./scenes.js";
 import { classifyBeat, pauseFrom, type TurnOutcome, type PauseState } from "./pacing.js";
+import {
+  initCursor,
+  completeCurrent,
+  discoverLead,
+  type MilestoneCursorState,
+} from "./milestone-cursor.js";
+import { initClock, tick, dmView, type WorldClockState } from "./world-clock.js";
 
 /** Ports the engine drives. It depends only on these interfaces — never on a
  *  concrete LLM / Discord / SealDice, which keeps the engine pure and testable.
@@ -23,6 +31,9 @@ export interface EngineDeps {
    *  AIDM grows/shrinks it via `effects`. With no scenes configured the engine
    *  behaves single-scene (every actor sees everything — #14 behaviour). */
   readonly scenes?: Record<string, readonly string[]>;
+  /** The plot spine (ADR-0007). When present, the engine tracks a milestone
+   *  cursor and the campaign's world clocks. */
+  readonly campaign?: CampaignBible;
 }
 
 /** Observable authoritative state transitions of a beat (ADR-0003 pacing). */
@@ -34,6 +45,7 @@ export type EngineEvent =
   | { readonly kind: "actor-silent"; readonly actorId: ActorId }
   | { readonly kind: "barrier-released" }
   | { readonly kind: "beat-held" }
+  | { readonly kind: "stall-detected" }
   | { readonly kind: "aidm-woke" };
 
 export interface BeatRequest {
@@ -67,6 +79,9 @@ export class Engine {
    *  then the engine is single-scene / all-visible (the #14 behaviour). */
   private readonly scoped: boolean;
 
+  private cursor: MilestoneCursorState | null = null;
+  private readonly clocks = new Map<string, WorldClockState>();
+
   constructor(private readonly deps: EngineDeps) {
     const config = deps.scenes ?? {};
     this.scoped = Object.keys(config).length > 0;
@@ -75,11 +90,28 @@ export class Engine {
         this.scenes.addMember(scene as SceneId, brandActor(member));
       }
     }
+    if (deps.campaign) {
+      this.cursor = initCursor(deps.campaign);
+      for (const spec of deps.campaign.worldClocks) {
+        this.clocks.set(spec.id, initClock(spec));
+      }
+    }
   }
 
   /** Canonical scene membership (for inspection / assertions). */
   membersOf(scene: SceneId): ActorId[] {
     return [...this.scenes.membersOf(scene)];
+  }
+
+  /** The per-branch milestone cursor, or null if no campaign is loaded. */
+  cursorState(): MilestoneCursorState | null {
+    return this.cursor;
+  }
+
+  /** The omniscient (AIDM) view of a world clock, or null if unknown. */
+  clockView(clockId: string): ReturnType<typeof dmView> | null {
+    const clock = this.clocks.get(clockId);
+    return clock ? dmView(clock) : null;
   }
 
   async runBeat(req: BeatRequest): Promise<BeatResult> {
@@ -117,8 +149,14 @@ export class Engine {
       };
     }
 
-    // 4. Released: wake the AIDM to advance.
+    // 4. Released. If nobody actually acted, the party stalled (拖延) → the
+    //    hidden world clocks advance (ADR-0007 soft gravity).
     events.push({ kind: "barrier-released" });
+    const anyActed = [...outcomes.values()].some((o) => o === "acted");
+    if (!anyActed) {
+      events.push({ kind: "stall-detected" });
+      for (const [id, clock] of this.clocks) this.clocks.set(id, tick(clock));
+    }
     const advance = await this.deps.agent.takeTurn(this.ctx(sceneId, aidmId, true));
     this.applyEffects(advance.effects);
     await this.post(sceneId, aidmId, advance.prose);
@@ -129,8 +167,27 @@ export class Engine {
   private applyEffects(effects: readonly SceneEffect[] | undefined): void {
     if (!effects) return;
     for (const e of effects) {
-      if (e.kind === "add-member") this.scenes.addMember(e.sceneId, e.actor);
-      else this.scenes.removeMember(e.sceneId, e.actor);
+      switch (e.kind) {
+        case "add-member":
+          this.scenes.addMember(e.sceneId, e.actor);
+          break;
+        case "remove-member":
+          this.scenes.removeMember(e.sceneId, e.actor);
+          break;
+        case "complete-milestone":
+          if (this.cursor && this.deps.campaign) {
+            this.cursor = completeCurrent(this.cursor, this.deps.campaign);
+          }
+          break;
+        case "discover-lead":
+          if (this.cursor) this.cursor = discoverLead(this.cursor, e.lead);
+          break;
+        case "advance-clock": {
+          const clock = this.clocks.get(e.clockId);
+          if (clock) this.clocks.set(e.clockId, tick(clock));
+          break;
+        }
+      }
     }
   }
 
