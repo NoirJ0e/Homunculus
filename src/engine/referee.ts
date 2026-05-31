@@ -1,9 +1,11 @@
 import { actorId as brandActor, type ActorId, type SceneId } from "../domain/ids.js";
 import type { Post } from "../domain/post.js";
-import type { TurnContext } from "../domain/agent.js";
+import type { TurnContext, CheckCall } from "../domain/agent.js";
 import type { SubstratePort } from "../ports/substrate.js";
 import type { NpcPort } from "../ports/npc.js";
 import type { HumanInboxPort } from "../ports/human-inbox.js";
+import type { SealDicePort } from "../ports/sealdice.js";
+import type { CardStore, CharacterSheet } from "../ports/card-store.js";
 import { SceneBook } from "./scenes.js";
 import type { Roster, ActorKind } from "./roster.js";
 import type { ControllerRegistry } from "./controller.js";
@@ -37,6 +39,10 @@ export interface RefereeDeps {
   readonly roster?: Roster;
   /** Soul→controller bindings (ADR-0006); supersedes `roster` and adds `inert`. */
   readonly controllers?: ControllerRegistry;
+  /** The dice/judge authority — resolves called checks (ADR-0001 修订, v1 = NativeDice). */
+  readonly dice?: SealDicePort;
+  /** Read-only mechanical sheets — the DM reads via `read_card` (ADR-0001/0002). */
+  readonly cards?: CardStore;
 }
 
 /** Observable authoritative pacing transitions of an awaited round (ADR-0003). */
@@ -48,7 +54,16 @@ export type AwaitEvent =
   | { readonly kind: "actor-inert"; readonly actorId: ActorId }
   | { readonly kind: "actor-silent"; readonly actorId: ActorId }
   | { readonly kind: "barrier-released" }
-  | { readonly kind: "beat-held" };
+  | { readonly kind: "beat-held" }
+  | { readonly kind: "check-called"; readonly actorId: ActorId; readonly skill: string; readonly difficulty?: string }
+  | {
+      readonly kind: "check-resolved";
+      readonly actorId: ActorId;
+      readonly skill: string;
+      readonly total: number;
+      readonly success: boolean;
+      readonly detail: string;
+    };
 
 /**
  * The result of `await_actors`. `released` means every awaited actor acted or
@@ -65,6 +80,9 @@ export class Referee {
   /** Scene-scoped visibility is active once any membership is configured. Until
    *  then the engine is single-scene / all-visible (the walking-skeleton mode). */
   private readonly scoped: boolean;
+  /** Checks the DM has called (喊检定) but no one has rolled yet, keyed by the
+   *  actor who must roll. An actor may only resolve ITS OWN pending entry. */
+  private readonly pendingChecks = new Map<ActorId, CheckCall>();
 
   constructor(private readonly deps: RefereeDeps) {
     const config = deps.scenes ?? {};
@@ -84,6 +102,59 @@ export class Referee {
    */
   async narrate(scene: SceneId, prose: string): Promise<void> {
     await this.post(scene, this.deps.aidmId, prose);
+  }
+
+  /**
+   * `call_check` — DM-only tool (ADR-0001/0002). The AIDM 喊检定 on an actor but
+   * does NOT roll: it registers a pending check keyed by the actor who must roll.
+   * The actor resolves it later by emitting its own `roll` during `await_actors`.
+   * A re-call on the same actor replaces the prior pending entry.
+   */
+  async callCheck(actor: ActorId, skill: string, difficulty?: string): Promise<void> {
+    this.pendingChecks.set(actor, { actor, skill, ...(difficulty !== undefined && { difficulty }) });
+  }
+
+  /**
+   * `read_card` — DM-only, READ-ONLY view of an actor's mechanical sheet
+   * (ADR-0001/0002). There is deliberately no companion write: the dice
+   * authority (NativeDice in v1) is the sole writer of the sheet.
+   */
+  readCard(actor: ActorId): CharacterSheet | undefined {
+    return this.deps.cards?.read(actor);
+  }
+
+  /**
+   * Resolve an actor's `roll` against ITS OWN pending check (后手只能掷自己的).
+   * With a matching pending and a dice port: consume the pending, resolve via the
+   * dice authority, post the structured detail as that actor, emit `check-resolved`.
+   * No own pending (or no dice port) → there is nothing to roll; it stays a pass.
+   */
+  private async resolveRoll(
+    scene: SceneId,
+    actor: ActorId,
+    events: AwaitEvent[],
+  ): Promise<SlotResult> {
+    const pending = this.pendingChecks.get(actor);
+    if (!pending || !this.deps.dice) {
+      events.push({ kind: "actor-passed", actorId: actor });
+      return { kind: "passed" };
+    }
+    this.pendingChecks.delete(actor);
+    const result = await this.deps.dice.roll({
+      actorId: actor,
+      skill: pending.skill,
+      ...(pending.difficulty !== undefined && { difficulty: pending.difficulty }),
+    });
+    const post = await this.post(scene, actor, result.detail);
+    events.push({
+      kind: "check-resolved",
+      actorId: actor,
+      skill: result.skill,
+      total: result.total,
+      success: result.success,
+      detail: result.detail,
+    });
+    return { kind: "acted", post };
   }
 
   /**
@@ -132,9 +203,7 @@ export class Referee {
       return { kind: "passed" };
     }
     if (turn.kind === "roll") {
-      // Checks land in #18; until then a human "roll" has nothing to resolve.
-      events.push({ kind: "actor-passed", actorId: actor });
-      return { kind: "passed" };
+      return this.resolveRoll(scene, actor, events);
     }
     const post = await this.post(scene, actor, turn.prose);
     events.push({ kind: "actor-acted", actorId: actor });
@@ -158,8 +227,10 @@ export class Referee {
       return { kind: "passed" };
     }
     const turn = await npc.takeTurn(this.ctx(scene, actor));
-    if (turn.kind === "pass" || turn.kind === "roll") {
-      // `roll` resolution lands in #18; for now it is an explicit pass.
+    if (turn.kind === "roll") {
+      return this.resolveRoll(scene, actor, events);
+    }
+    if (turn.kind === "pass") {
       events.push({ kind: "actor-passed", actorId: actor });
       return { kind: "passed" };
     }

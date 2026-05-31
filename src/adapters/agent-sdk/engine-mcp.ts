@@ -48,10 +48,56 @@ export function dmTools(referee: Referee): SdkMcpToolDefinition<any>[] {
         return { content: [{ type: "text", text }] };
       },
     ),
+    tool(
+      "call_check",
+      "AIDM 喊检定：对某个角色就某项技能/难度发起检定（只喊不掷）。引擎登记为待掷，待该角色自己 roll 时由骰子裁决。仅 DM 可用。",
+      { actor: z.string(), skill: z.string(), difficulty: z.string().optional() },
+      async (args) => {
+        await referee.callCheck(actorId(args.actor), args.skill, args.difficulty);
+        return { content: [{ type: "text", text: `check called on ${args.actor}: ${args.skill}` }] };
+      },
+    ),
+    tool(
+      "read_card",
+      "AIDM 只读查看某角色的机械数值卡（ADR-0001/0002）。只读——没有 write_card：骰子权威（v1 = NativeDice）是角色卡的唯一写者。仅 DM 可用。",
+      { actor: z.string() },
+      async (args) => {
+        const sheet = referee.readCard(actorId(args.actor));
+        return { content: [{ type: "text", text: JSON.stringify(sheet ?? null) }] };
+      },
+    ),
+  ];
+}
+
+/**
+ * The NPC's in-process MCP tool surface (ADR-0009). The DM/NPC partition is
+ * physical: NPCs get `roll` and NOTHING else — never `narrate`, `call_check`,
+ * or `read_card`. `roll` resolves only the calling character's OWN pending
+ * check (enforced in the referee); there is no way to roll another's.
+ */
+export function npcTools(referee: Referee): SdkMcpToolDefinition<any>[] {
+  return [
+    tool(
+      "roll",
+      "角色掷骰：解析 AIDM 对自己喊的待掷检定（.ra）。只能掷自己的待掷检定。掷骰的实际裁决发生在引擎拉起该角色的出手槽时。",
+      { actor: z.string() },
+      async (args) => {
+        // The roll is resolved by the engine during `await_actors` (the round
+        // pulls the actor up and consumes its own pending check). This tool is
+        // the NPC-side signal of intent; it carries no resolution itself.
+        void referee;
+        return { content: [{ type: "text", text: `roll intent: ${args.actor}` }] };
+      },
+    ),
   ];
 }
 
 /** Build the DM's in-process MCP tool server (the engine's referee surface). */
 export function createDmMcpServer(referee: Referee): McpSdkServerConfigWithInstance {
   return createSdkMcpServer({ name: "engine", version: "0.1.0", tools: dmTools(referee) });
+}
+
+/** Build the NPC's in-process MCP tool server — the `roll`-only partition. */
+export function createNpcMcpServer(referee: Referee): McpSdkServerConfigWithInstance {
+  return createSdkMcpServer({ name: "engine-npc", version: "0.1.0", tools: npcTools(referee) });
 }
