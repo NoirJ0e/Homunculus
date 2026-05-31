@@ -18,6 +18,7 @@ import {
 import { initClock, tick, dmView, type WorldClockState } from "./world-clock.js";
 import { recall } from "./memory.js";
 import type { SoulStore } from "../ports/soul-store.js";
+import type { ControllerRegistry } from "./controller.js";
 
 /** Ports the engine drives. It depends only on these interfaces — never on a
  *  concrete LLM / Discord / SealDice, which keeps the engine pure and testable.
@@ -39,6 +40,9 @@ export interface EngineDeps {
   /** Soul store (ADR-0004). When present, soul-backed actors get their resident
    *  persona core + recalled episodic memory assembled into their context. */
   readonly souls?: SoulStore;
+  /** Soul→controller bindings (ADR-0006). When present, supersedes `roster`:
+   *  it decides whether an awaited soul is driven by a human, an AI, or is inert. */
+  readonly controllers?: ControllerRegistry;
 }
 
 /** Observable authoritative state transitions of a beat (ADR-0003 pacing). */
@@ -47,6 +51,7 @@ export type EngineEvent =
   | { readonly kind: "actor-acted"; readonly actorId: ActorId }
   | { readonly kind: "actor-passed"; readonly actorId: ActorId }
   | { readonly kind: "actor-gated"; readonly actorId: ActorId }
+  | { readonly kind: "actor-inert"; readonly actorId: ActorId }
   | { readonly kind: "actor-silent"; readonly actorId: ActorId }
   | { readonly kind: "barrier-released" }
   | { readonly kind: "beat-held" }
@@ -145,10 +150,17 @@ export class Engine {
 
     const outcomes = new Map<ActorId, TurnOutcome>();
     for (const actor of awaited) {
-      const outcome =
-        this.kindOf(actor) === "human"
-          ? await this.resolveHuman(sceneId, actor, events)
-          : await this.resolveAi(sceneId, actor, events);
+      const drive = this.driveOf(actor);
+      let outcome: TurnOutcome;
+      if (drive === "inert") {
+        // "别管我" long pass — skip without holding the table.
+        events.push({ kind: "actor-inert", actorId: actor });
+        outcome = "passed";
+      } else if (drive === "human") {
+        outcome = await this.resolveHuman(sceneId, actor, events);
+      } else {
+        outcome = await this.resolveAi(sceneId, actor, events);
+      }
       outcomes.set(actor, outcome);
     }
 
@@ -280,6 +292,13 @@ export class Engine {
 
   private kindOf(actor: ActorId): ActorKind {
     return this.deps.roster ? this.deps.roster.kindOf(actor) : "ai";
+  }
+
+  /** How an awaited soul is driven this beat. Controllers (ADR-0006) supersede
+   *  the static roster and add the `inert` ("别管我") drive. */
+  private driveOf(actor: ActorId): "human" | "ai" | "inert" {
+    if (this.deps.controllers) return this.deps.controllers.controllerOf(actor).kind;
+    return this.kindOf(actor);
   }
 
   /** Assemble what an actor sees. The AIDM (omniscient) and the unscoped #14
