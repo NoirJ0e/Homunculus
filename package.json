@@ -1,0 +1,16 @@
+{
+  "name": "homunculus",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Multi-agent TTRPG core — deterministic engine behind Agent / SealDice / Substrate ports.",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4",
+    "vitest": "^2.0.5"
+  }
+}

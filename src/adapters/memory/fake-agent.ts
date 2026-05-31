@@ -1,0 +1,27 @@
+import type { AgentResponse, TurnContext } from "../../domain/agent.js";
+import type { AgentPort } from "../../ports/agent.js";
+
+/**
+ * Scripted in-memory agent. Each actor id maps to a queue of responses consumed
+ * in order — so the AIDM, asked twice in a beat, gets its two scripted lines.
+ * Captures every TurnContext it was handed, for asserting on what an actor saw.
+ */
+export class FakeAgent implements AgentPort {
+  private readonly scripts = new Map<string, AgentResponse[]>();
+  readonly seen: TurnContext[] = [];
+
+  constructor(scripts: Record<string, AgentResponse[]>) {
+    for (const [id, responses] of Object.entries(scripts)) {
+      this.scripts.set(id, [...responses]);
+    }
+  }
+
+  async takeTurn(ctx: TurnContext): Promise<AgentResponse> {
+    this.seen.push(ctx);
+    const queue = this.scripts.get(ctx.actorId);
+    if (!queue || queue.length === 0) {
+      throw new Error(`FakeAgent: no scripted response left for actor "${ctx.actorId}"`);
+    }
+    return queue.shift()!;
+  }
+}
