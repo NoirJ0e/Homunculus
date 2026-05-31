@@ -48,6 +48,52 @@ export function dmTools(referee: Referee): SdkMcpToolDefinition<any>[] {
         return { content: [{ type: "text", text }] };
       },
     ),
+    tool(
+      "advance_milestone",
+      "AIDM 判定当前里程碑达成：推进剧情脊柱游标到下一节点（ADR-0007）。仅 DM 可用。",
+      {},
+      async () => {
+        referee.advanceMilestone();
+        const cur = referee.cursorState()?.currentMilestone ?? "<spine-done>";
+        return { content: [{ type: "text", text: `milestone → ${cur}` }] };
+      },
+    ),
+    tool(
+      "discover_lead",
+      "AIDM 记录一条线索面包屑（软引力的燃料，ADR-0007）。仅 DM 可用。",
+      { lead: z.string() },
+      async (args) => {
+        referee.discoverLead(args.lead);
+        return { content: [{ type: "text", text: `lead recorded: ${args.lead}` }] };
+      },
+    ),
+    tool(
+      "advance_clock",
+      "AIDM 推进一个隐藏世界时钟（反派计划/沦陷度，ADR-0007）。玩家永远只感知定性程度，看不到数字。仅 DM 可用。",
+      { clockId: z.string() },
+      async (args) => {
+        referee.advanceClock(args.clockId);
+        return { content: [{ type: "text", text: `clock ticked: ${args.clockId}` }] };
+      },
+    ),
+    tool(
+      "add_member",
+      "AIDM 把一个角色加入场景（ADR-0005）：其可见地平线随即包含该场景的记录。仅 DM 可用。",
+      { sceneId: z.string(), actor: z.string() },
+      async (args) => {
+        referee.addMember(sceneId(args.sceneId), actorId(args.actor));
+        return { content: [{ type: "text", text: `${args.actor} → ${args.sceneId}` }] };
+      },
+    ),
+    tool(
+      "remove_member",
+      "AIDM 把一个角色移出场景（ADR-0005）：该场景的记录随即离开其地平线。仅 DM 可用。",
+      { sceneId: z.string(), actor: z.string() },
+      async (args) => {
+        referee.removeMember(sceneId(args.sceneId), actorId(args.actor));
+        return { content: [{ type: "text", text: `${args.actor} ✕ ${args.sceneId}` }] };
+      },
+    ),
   ];
 }
 

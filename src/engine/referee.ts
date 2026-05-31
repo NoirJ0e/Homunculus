@@ -9,6 +9,14 @@ import type { Roster, ActorKind } from "./roster.js";
 import type { ControllerRegistry } from "./controller.js";
 import { runCombatRound, type SlotResult } from "./combat-round.js";
 import type { PauseState } from "./pacing.js";
+import type { CampaignBible } from "../domain/campaign.js";
+import {
+  initCursor,
+  completeCurrent,
+  discoverLead,
+  type MilestoneCursorState,
+} from "./milestone-cursor.js";
+import { initClock, tick, dmView, playerSignal, type WorldClockState } from "./world-clock.js";
 
 /**
  * Referee — the engine's shared state + the tool handlers the DM/NPC agents
@@ -37,6 +45,9 @@ export interface RefereeDeps {
   readonly roster?: Roster;
   /** Soul→controller bindings (ADR-0006); supersedes `roster` and adds `inert`. */
   readonly controllers?: ControllerRegistry;
+  /** The plot spine (ADR-0007). When present, the referee tracks a per-branch
+   *  milestone cursor and the campaign's world clocks. */
+  readonly campaign?: CampaignBible;
 }
 
 /** Observable authoritative pacing transitions of an awaited round (ADR-0003). */
@@ -65,6 +76,10 @@ export class Referee {
   /** Scene-scoped visibility is active once any membership is configured. Until
    *  then the engine is single-scene / all-visible (the walking-skeleton mode). */
   private readonly scoped: boolean;
+  /** Per-branch milestone cursor (ADR-0007), or null when no campaign is loaded. */
+  private cursor: MilestoneCursorState | null = null;
+  /** The campaign's world clocks, keyed by id; advanced via `advanceClock`. */
+  private readonly clocks = new Map<string, WorldClockState>();
 
   constructor(private readonly deps: RefereeDeps) {
     const config = deps.scenes ?? {};
@@ -74,6 +89,68 @@ export class Referee {
         this.scenes.addMember(scene as SceneId, brandActor(member));
       }
     }
+    if (deps.campaign) {
+      this.cursor = initCursor(deps.campaign);
+      for (const spec of deps.campaign.worldClocks) {
+        this.clocks.set(spec.id, initClock(spec));
+      }
+    }
+  }
+
+  /**
+   * `advance_milestone` — DM-only tool (ADR-0007/0009). The AIDM judges the
+   * current load-bearing beat complete and the engine advances the cursor.
+   */
+  advanceMilestone(): void {
+    if (this.cursor && this.deps.campaign) {
+      this.cursor = completeCurrent(this.cursor, this.deps.campaign);
+    }
+  }
+
+  /** `discover_lead` — DM-only tool. Records a breadcrumb on the cursor. */
+  discoverLead(lead: string): void {
+    if (this.cursor) this.cursor = discoverLead(this.cursor, lead);
+  }
+
+  /** `advance_clock` — DM-only tool. Ticks one named world clock (ADR-0007). */
+  advanceClock(clockId: string): void {
+    const clock = this.clocks.get(clockId);
+    if (clock) this.clocks.set(clockId, tick(clock));
+  }
+
+  /** `add_member` — DM-only tool. Adds an actor to a scene (ADR-0005); its
+   *  visibility horizon then includes that scene's posts. */
+  addMember(scene: SceneId, actor: ActorId): void {
+    this.scenes.addMember(scene, actor);
+  }
+
+  /** `remove_member` — DM-only tool. Removes an actor from a scene (ADR-0005);
+   *  the scene's posts drop out of its horizon. */
+  removeMember(scene: SceneId, actor: ActorId): void {
+    this.scenes.removeMember(scene, actor);
+  }
+
+  /** The per-branch milestone cursor, or null if no campaign is loaded. */
+  cursorState(): MilestoneCursorState | null {
+    return this.cursor;
+  }
+
+  /** The omniscient (AIDM) view of a world clock — raw numbers — or null. */
+  clockDmView(clockId: string): ReturnType<typeof dmView> | null {
+    const clock = this.clocks.get(clockId);
+    return clock ? dmView(clock) : null;
+  }
+
+  /** The player-facing signal of a world clock — a qualitative band only, never
+   *  the raw number (ADR-0007) — or null if the clock is unknown. */
+  clockPlayerSignal(clockId: string): ReturnType<typeof playerSignal> | null {
+    const clock = this.clocks.get(clockId);
+    return clock ? playerSignal(clock) : null;
+  }
+
+  /** An actor's visibility horizon — the posts in scenes it belongs to. */
+  horizonOf(actor: ActorId): readonly Post[] {
+    return this.scenes.horizon(actor);
   }
 
   /**

@@ -46,7 +46,9 @@ describe("#15 referee + in-process MCP tool server (narrate)", () => {
     const referee = new Referee({ aidmId: aidm, substrate, npc });
 
     const tools = dmTools(referee);
-    expect(tools.map((t) => t.name)).toEqual(["narrate", "await_actors"]);
+    expect(tools.map((t) => t.name)).toEqual(
+      expect.arrayContaining(["narrate", "await_actors"]),
+    );
 
     const awaitActors = tools.find((t) => t.name === "await_actors")!;
     const res = await awaitActors.handler({ sceneId: "scene:tavern", order: ["npc-rogue"] }, {});
