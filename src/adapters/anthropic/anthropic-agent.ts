@@ -44,6 +44,7 @@
 
 import type { AgentPort } from "../../ports/agent.js";
 import type { AgentResponse, ControlSignal, TurnContext } from "../../domain/agent.js";
+import { actorId } from "../../domain/ids.js";
 
 // ─── Minimal SDK surface we depend on (DI-able interface) ───────────────────
 
@@ -331,7 +332,7 @@ export class AnthropicAgent implements AgentPort {
     if (action === "awaiting") {
       const actorIds = input["actor_ids"];
       const actors = Array.isArray(actorIds)
-        ? actorIds.filter((x): x is string => typeof x === "string")
+        ? actorIds.filter((x): x is string => typeof x === "string").map(actorId)
         : [];
       return { kind: "awaiting", actors };
     }
