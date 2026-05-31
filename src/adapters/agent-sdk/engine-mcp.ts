@@ -5,7 +5,7 @@ import {
   type McpSdkServerConfigWithInstance,
   type SdkMcpToolDefinition,
 } from "@anthropic-ai/claude-agent-sdk";
-import { sceneId } from "../../domain/ids.js";
+import { actorId, sceneId } from "../../domain/ids.js";
 import type { Referee } from "../../engine/referee.js";
 
 /**
@@ -30,6 +30,22 @@ export function dmTools(referee: Referee): SdkMcpToolDefinition<any>[] {
       async (args) => {
         await referee.narrate(sceneId(args.sceneId), args.prose);
         return { content: [{ type: "text", text: `narrated → ${args.sceneId}` }] };
+      },
+    ),
+    tool(
+      "await_actors",
+      "AIDM 抛屏障：按出手顺序跑一轮简化战斗轮，引擎逐个拉起在场者（NPC 过唤醒闸后出手，真人经收件箱）。全员行动/明确 pass → 返回；真人沉默 → 溢出一轮后挂起（暂停/存档）。仅 DM 可用。",
+      { sceneId: z.string(), order: z.array(z.string()) },
+      async (args) => {
+        const outcome = await referee.awaitActors(
+          sceneId(args.sceneId),
+          args.order.map(actorId),
+        );
+        const text =
+          outcome.status === "released"
+            ? `released: ${outcome.posts.length} post(s)`
+            : `held: waiting on ${outcome.pause.waitingOn.join(", ")}`;
+        return { content: [{ type: "text", text }] };
       },
     ),
   ];

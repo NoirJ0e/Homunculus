@@ -1,18 +1,22 @@
 import { actorId as brandActor, type ActorId, type SceneId } from "../domain/ids.js";
 import type { Post } from "../domain/post.js";
+import type { TurnContext } from "../domain/agent.js";
 import type { SubstratePort } from "../ports/substrate.js";
+import type { NpcPort } from "../ports/npc.js";
+import type { HumanInboxPort } from "../ports/human-inbox.js";
 import { SceneBook } from "./scenes.js";
+import type { Roster, ActorKind } from "./roster.js";
+import type { ControllerRegistry } from "./controller.js";
+import { runCombatRound, type SlotResult } from "./combat-round.js";
+import type { PauseState } from "./pacing.js";
 
 /**
  * Referee — the engine's shared state + the tool handlers the DM/NPC agents
- * call (ADR-0009). The control flow is half-inverted: the engine no longer
- * directs a beat; instead it exposes capabilities as in-process MCP tools whose
- * handlers are same-process TS closures over this shared state, and only
- * referees the invariants (visibility / sole-writer / pacing).
- *
- * This slice (#15) stands up the skeleton with the first tool, `narrate`. Later
- * slices hang more methods off the same shared state: `await_actors` (#17),
- * `call_check` / `roll` / `read_card` (#18), spine / scene / clock writes (#19).
+ * call (ADR-0009). The control flow is half-inverted: the DM is a self-driving
+ * Agent-SDK loop that calls these tools to push the table; the engine no longer
+ * directs a beat, it only referees the invariants (visibility / sole-writer /
+ * pacing) and, on `await_actors`, paces a simplified combat round that pulls up
+ * the NPCs itself.
  *
  * Purity (CI guard): this module lives under the engine and therefore imports
  * only ports + pure kernels — never the Agent SDK or a concrete substrate. The
@@ -21,17 +25,51 @@ import { SceneBook } from "./scenes.js";
 export interface RefereeDeps {
   /** The AIDM — the sole narrator and authoritative-state writer (ADR-0002). */
   readonly aidmId: ActorId;
-  /** Where narrated posts surface (Discord in #4, an in-memory capture in tests). */
+  /** Where narrated/spoken posts surface (Discord in #4, in-memory in tests). */
   readonly substrate: SubstratePort;
   /** Initial scene membership (sceneId → actor ids); the AIDM grows/shrinks it. */
   readonly scenes?: Record<string, readonly string[]>;
+  /** Drives NPCs the engine pulls up in `await_actors`. */
+  readonly npc?: NpcPort;
+  /** Inbound side for awaited humans; `undefined` poll = silence (ADR-0003). */
+  readonly humanInbox?: HumanInboxPort;
+  /** Who is human vs AI (ADR-0003). Unknown actors default to AI. */
+  readonly roster?: Roster;
+  /** Soul→controller bindings (ADR-0006); supersedes `roster` and adds `inert`. */
+  readonly controllers?: ControllerRegistry;
 }
+
+/** Observable authoritative pacing transitions of an awaited round (ADR-0003). */
+export type AwaitEvent =
+  | { readonly kind: "barrier-opened"; readonly waiting: readonly ActorId[] }
+  | { readonly kind: "actor-acted"; readonly actorId: ActorId }
+  | { readonly kind: "actor-passed"; readonly actorId: ActorId }
+  | { readonly kind: "actor-gated"; readonly actorId: ActorId }
+  | { readonly kind: "actor-inert"; readonly actorId: ActorId }
+  | { readonly kind: "actor-silent"; readonly actorId: ActorId }
+  | { readonly kind: "barrier-released" }
+  | { readonly kind: "beat-held" };
+
+/**
+ * The result of `await_actors`. `released` means every awaited actor acted or
+ * explicitly passed and the tool returns to the DM. `held` means a silent human
+ * — the round overflowed and the barrier holds indefinitely; in the real Agent
+ * SDK the tool call simply never returns. The `pause` IS the save state.
+ */
+export type AwaitOutcome =
+  | { readonly status: "released"; readonly posts: readonly Post[]; readonly events: readonly AwaitEvent[] }
+  | { readonly status: "held"; readonly pause: PauseState; readonly events: readonly AwaitEvent[] };
 
 export class Referee {
   private readonly scenes = new SceneBook();
+  /** Scene-scoped visibility is active once any membership is configured. Until
+   *  then the engine is single-scene / all-visible (the walking-skeleton mode). */
+  private readonly scoped: boolean;
 
   constructor(private readonly deps: RefereeDeps) {
-    for (const [scene, members] of Object.entries(deps.scenes ?? {})) {
+    const config = deps.scenes ?? {};
+    this.scoped = Object.keys(config).length > 0;
+    for (const [scene, members] of Object.entries(config)) {
       for (const member of members) {
         this.scenes.addMember(scene as SceneId, brandActor(member));
       }
@@ -45,9 +83,112 @@ export class Referee {
    * co-governance is enforced at the tool boundary, not by prompt etiquette.
    */
   async narrate(scene: SceneId, prose: string): Promise<void> {
-    const post: Post = { sceneId: scene, actorId: this.deps.aidmId, prose };
+    await this.post(scene, this.deps.aidmId, prose);
+  }
+
+  /**
+   * `await_actors` — DM-only tool (ADR-0009). Opens the barrier and paces one
+   * simplified combat round (ADR-0003) over `order`: each actor is pulled up in
+   * turn — AIs via the wake-gate then a single out-turn, humans via the inbox —
+   * with later actors seeing earlier actors' just-made posts (后手看前手). All
+   * acted/passed → released; a silent human → the round overflows to completion
+   * then holds, yielding a serializable pause.
+   */
+  async awaitActors(scene: SceneId, order: readonly ActorId[]): Promise<AwaitOutcome> {
+    const events: AwaitEvent[] = [{ kind: "barrier-opened", waiting: [...order] }];
+
+    const produce = async (actor: ActorId): Promise<SlotResult> => {
+      const drive = this.driveOf(actor);
+      if (drive === "inert") {
+        events.push({ kind: "actor-inert", actorId: actor });
+        return { kind: "passed" };
+      }
+      if (drive === "human") return this.resolveHuman(scene, actor, events);
+      return this.resolveAi(scene, actor, events);
+    };
+
+    const round = await runCombatRound(scene, this.deps.aidmId, order, (actor) => produce(actor));
+
+    if (round.status === "held") {
+      events.push({ kind: "beat-held" });
+      return { status: "held", pause: round.pause!, events };
+    }
+    events.push({ kind: "barrier-released" });
+    return { status: "released", posts: round.posts, events };
+  }
+
+  private async resolveHuman(
+    scene: SceneId,
+    actor: ActorId,
+    events: AwaitEvent[],
+  ): Promise<SlotResult> {
+    const turn = this.deps.humanInbox ? await this.deps.humanInbox.poll(actor, scene) : undefined;
+    if (turn === undefined) {
+      events.push({ kind: "actor-silent", actorId: actor });
+      return { kind: "silent" };
+    }
+    if (turn.kind === "pass") {
+      events.push({ kind: "actor-passed", actorId: actor });
+      return { kind: "passed" };
+    }
+    if (turn.kind === "roll") {
+      // Checks land in #18; until then a human "roll" has nothing to resolve.
+      events.push({ kind: "actor-passed", actorId: actor });
+      return { kind: "passed" };
+    }
+    const post = await this.post(scene, actor, turn.prose);
+    events.push({ kind: "actor-acted", actorId: actor });
+    return { kind: "acted", post };
+  }
+
+  private async resolveAi(
+    scene: SceneId,
+    actor: ActorId,
+    events: AwaitEvent[],
+  ): Promise<SlotResult> {
+    const npc = this.deps.npc;
+    if (!npc) {
+      events.push({ kind: "actor-passed", actorId: actor });
+      return { kind: "passed" };
+    }
+    // Cheap wake-gate first: only "speakers" pay for full generation.
+    const willSpeak = npc.shouldSpeak ? await npc.shouldSpeak(this.ctx(scene, actor)) : true;
+    if (!willSpeak) {
+      events.push({ kind: "actor-gated", actorId: actor });
+      return { kind: "passed" };
+    }
+    const turn = await npc.takeTurn(this.ctx(scene, actor));
+    if (turn.kind === "pass" || turn.kind === "roll") {
+      // `roll` resolution lands in #18; for now it is an explicit pass.
+      events.push({ kind: "actor-passed", actorId: actor });
+      return { kind: "passed" };
+    }
+    const post = await this.post(scene, actor, turn.prose);
+    events.push({ kind: "actor-acted", actorId: actor });
+    return { kind: "acted", post };
+  }
+
+  /** How an awaited actor is driven this round. Controllers (ADR-0006) supersede
+   *  the static roster and add the `inert` ("别管我") drive. */
+  private driveOf(actor: ActorId): "human" | "ai" | "inert" {
+    if (this.deps.controllers) return this.deps.controllers.controllerOf(actor).kind;
+    const kind: ActorKind = this.deps.roster ? this.deps.roster.kindOf(actor) : "ai";
+    return kind;
+  }
+
+  /** What an NPC sees when pulled up: its scene horizon — which already includes
+   *  earlier actors' posts made this round, since each acted post is recorded
+   *  immediately (后手看前手, ADR-0003). */
+  private ctx(scene: SceneId, actor: ActorId): TurnContext {
+    const transcript = this.scoped ? this.scenes.horizon(actor) : [...this.scenes.fullLog()];
+    return { sceneId: scene, actorId: actor, transcript };
+  }
+
+  private async post(scene: SceneId, actor: ActorId, prose: string): Promise<Post> {
+    const post: Post = { sceneId: scene, actorId: actor, prose };
     this.scenes.record(post);
     await this.deps.substrate.emit(post);
+    return post;
   }
 
   /** The omniscient (AIDM) view of the full record — for inspection / assertions. */
