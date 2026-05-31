@@ -24,17 +24,32 @@ export type SceneEffect =
   | { readonly kind: "advance-clock"; readonly clockId: string };
 
 /**
+ * A check the AIDM calls for (喊检定): a specific actor rolls a skill at a
+ * difficulty band. The AIDM only calls it — SealDice resolves and is the sole
+ * writer of the sheet (ADR-0001/0002); the character emits the actual `.ra`.
+ */
+export interface CheckCall {
+  readonly actor: ActorId;
+  readonly skill: string;
+  readonly difficulty?: string;
+}
+
+/**
  * What an actor (AIDM or NPC) returns when asked to take its turn.
  * - `prose`  — narrative contribution; absent when passing.
  * - `control`— pacing signal; in practice only the AIDM sets this.
  * - `pass`   — an explicit, deliberate "I have nothing to add" (ADR-0003).
  * - `effects`— authoritative state writes; AIDM only (ADR-0002).
+ * - `check`  — the AIDM calls for a check on an actor (喊检定).
+ * - `roll`   — the called-on character emits its `.ra` to resolve a pending check.
  */
 export interface AgentResponse {
   readonly prose?: string;
   readonly control?: ControlSignal;
   readonly pass?: boolean;
   readonly effects?: readonly SceneEffect[];
+  readonly check?: CheckCall;
+  readonly roll?: boolean;
 }
 
 /** The slice of the world an actor sees when asked to act. */

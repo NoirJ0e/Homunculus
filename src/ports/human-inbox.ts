@@ -7,7 +7,8 @@ import type { ActorId, SceneId } from "../domain/ids.js";
  */
 export type HumanTurn =
   | { readonly kind: "prose"; readonly prose: string }
-  | { readonly kind: "pass" };
+  | { readonly kind: "pass" }
+  | { readonly kind: "roll" }; // the human types `.ra` to resolve a called check
 
 /**
  * Human inbox port — the inbound side of the substrate. The engine polls it for

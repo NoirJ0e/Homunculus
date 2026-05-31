@@ -1,6 +1,6 @@
 import { actorId as brandActor, type ActorId, type SceneId } from "../domain/ids.js";
 import type { Post } from "../domain/post.js";
-import type { TurnContext, SceneEffect } from "../domain/agent.js";
+import type { TurnContext, SceneEffect, CheckCall } from "../domain/agent.js";
 import type { AgentPort } from "../ports/agent.js";
 import type { SubstratePort } from "../ports/substrate.js";
 import type { SealDicePort } from "../ports/sealdice.js";
@@ -46,6 +46,8 @@ export type EngineEvent =
   | { readonly kind: "barrier-released" }
   | { readonly kind: "beat-held" }
   | { readonly kind: "stall-detected" }
+  | { readonly kind: "check-called"; readonly actorId: ActorId }
+  | { readonly kind: "check-resolved"; readonly actorId: ActorId }
   | { readonly kind: "aidm-woke" };
 
 export interface BeatRequest {
@@ -81,6 +83,8 @@ export class Engine {
 
   private cursor: MilestoneCursorState | null = null;
   private readonly clocks = new Map<string, WorldClockState>();
+  /** Checks the AIDM has called but the character has not yet rolled. */
+  private readonly pendingChecks = new Map<ActorId, CheckCall>();
 
   constructor(private readonly deps: EngineDeps) {
     const config = deps.scenes ?? {};
@@ -122,6 +126,10 @@ export class Engine {
     const opening = await this.deps.agent.takeTurn(this.ctx(sceneId, aidmId, true));
     this.applyEffects(opening.effects);
     await this.post(sceneId, aidmId, opening.prose);
+    if (opening.check) {
+      this.pendingChecks.set(opening.check.actor, opening.check);
+      events.push({ kind: "check-called", actorId: opening.check.actor });
+    }
     if (opening.control?.kind !== "awaiting") {
       return { status: "advanced", events };
     }
@@ -207,6 +215,9 @@ export class Engine {
       events.push({ kind: "actor-passed", actorId: actor });
       return "passed";
     }
+    if (turn.kind === "roll") {
+      return this.resolveRoll(sceneId, actor, events);
+    }
     await this.post(sceneId, actor, turn.prose);
     events.push({ kind: "actor-acted", actorId: actor });
     return "acted";
@@ -230,8 +241,35 @@ export class Engine {
       events.push({ kind: "actor-passed", actorId: actor });
       return "passed";
     }
+    if (turn.roll && this.pendingChecks.has(actor)) {
+      return this.resolveRoll(sceneId, actor, events);
+    }
     await this.post(sceneId, actor, turn.prose);
     events.push({ kind: "actor-acted", actorId: actor });
+    return "acted";
+  }
+
+  /** The called-on character emits `.ra`: SealDice resolves the pending check
+   *  (sole writer of the sheet) and the result flows into the transcript. */
+  private async resolveRoll(
+    sceneId: SceneId,
+    actor: ActorId,
+    events: EngineEvent[],
+  ): Promise<TurnOutcome> {
+    const call = this.pendingChecks.get(actor);
+    if (!call) {
+      // No check pending — nothing to roll; treat as a pass.
+      events.push({ kind: "actor-passed", actorId: actor });
+      return "passed";
+    }
+    this.pendingChecks.delete(actor);
+    const result = await this.deps.dice.roll(
+      call.difficulty === undefined
+        ? { actorId: actor, skill: call.skill }
+        : { actorId: actor, skill: call.skill, difficulty: call.difficulty },
+    );
+    await this.post(sceneId, actor, result.detail);
+    events.push({ kind: "check-resolved", actorId: actor });
     return "acted";
   }
 
