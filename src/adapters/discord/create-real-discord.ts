@@ -192,34 +192,60 @@ export async function createWebhookPostingClient(botToken: string): Promise<Disc
   const client = new Client({ intents: [GatewayIntentBits.Guilds] });
   await client.login(botToken);
 
-  // channelId → the bot's webhook on that channel (lazily resolved + cached).
-  const webhooks = new Map<string, { send: (opts: unknown) => Promise<unknown> }>();
+  // target id (thread OR channel) → its hosting webhook + the threadId to route
+  // through (set when the target is a THREAD). Threads cannot host a webhook: the
+  // webhook lives on the parent text channel and messages are routed into the
+  // thread via the `threadId` send option.
+  const webhooks = new Map<
+    string,
+    { send: (opts: unknown) => Promise<unknown>; threadId?: string }
+  >();
 
-  async function webhookFor(channelId: string): Promise<{ send: (opts: unknown) => Promise<unknown> }> {
+  async function webhookFor(
+    channelId: string,
+  ): Promise<{ send: (opts: unknown) => Promise<unknown>; threadId?: string }> {
     const cached = webhooks.get(channelId);
     if (cached) return cached;
 
-    const channel = await client.channels.fetch(channelId);
-    if (channel === null || !("fetchWebhooks" in channel) || !("createWebhook" in channel)) {
+    const target = await client.channels.fetch(channelId);
+    if (target === null) throw new Error(`channel ${channelId} not found`);
+
+    // A thread hosts no webhook — resolve its parent text channel to host one,
+    // and remember to route sends back into the thread via threadId.
+    const isThread = "isThread" in target && (target as { isThread: () => boolean }).isThread();
+    const parentId = (target as { parentId?: string | null }).parentId ?? null;
+    const host = isThread
+      ? parentId === null
+        ? null
+        : await client.channels.fetch(parentId)
+      : target;
+
+    if (host === null || !("fetchWebhooks" in host) || !("createWebhook" in host)) {
       throw new Error(`channel ${channelId} cannot host a webhook for persona posts`);
     }
-    const existing = await channel.fetchWebhooks();
+    const existing = await host.fetchWebhooks();
     const own = existing.find((w) => w.owner?.id === client.user?.id);
-    const webhook = own ?? (await channel.createWebhook({ name: "Homunculus 分身" }));
-    const wrapped = webhook as unknown as { send: (opts: unknown) => Promise<unknown> };
+    const webhook = own ?? (await host.createWebhook({ name: "Homunculus 分身" }));
+    const send = (webhook as unknown as { send: (opts: unknown) => Promise<unknown> }).send.bind(
+      webhook,
+    );
+    const wrapped: { send: (opts: unknown) => Promise<unknown>; threadId?: string } = isThread
+      ? { send, threadId: channelId }
+      : { send };
     webhooks.set(channelId, wrapped);
     return wrapped;
   }
 
   return {
     async sendWebhookMessage(channelId: string, message: SentMessage): Promise<void> {
-      const webhook = await webhookFor(channelId);
-      const opts: { content: string; username: string; avatarURL?: string } = {
+      const { send, threadId } = await webhookFor(channelId);
+      const opts: { content: string; username: string; avatarURL?: string; threadId?: string } = {
         content: message.content,
         username: message.username,
       };
       if (message.avatarURL !== undefined) opts.avatarURL = message.avatarURL;
-      await webhook.send(opts);
+      if (threadId !== undefined) opts.threadId = threadId;
+      await send(opts);
     },
 
     async fetchMessages(): Promise<InboundMessage[]> {
