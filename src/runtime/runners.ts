@@ -17,6 +17,7 @@ import { genesisFullAuto } from "../genesis/soul-genesis.js";
 import { runDmDriver } from "./dm-driver.js";
 import { PushInbox } from "./push-inbox.js";
 import { StreamInputChannel } from "./stream-input.js";
+import { postCardAssistantText } from "./card-creation.js";
 import type { QueryHandle, QueryRunner, QueryRunnerContext } from "./dispatcher.js";
 
 /**
@@ -256,4 +257,36 @@ export function makeRunners(deps: RunnerDeps): Runners {
   };
 
   return { runConciergeQuery, runAidmQuery, runCardCreationQuery, deleteSession };
+}
+
+/** The open-card 开卡向导 system prompt (ADR-0012 Phase 5). */
+const CARD_ASSISTANT_PROMPT =
+  "你是开卡向导：用轻松对话帮玩家把一个角色概念落成一张卡——名字、性格、目标、背景。" +
+  "不要主持游戏、不要叙事。聊清楚后复述确认即可；玩家满意了提示他用 `/verify-card` 交审。";
+
+/**
+ * Build the `startAssistant` seam the `/create-character-card` handler injects
+ * (#34). Each call spins up a streaming-input `query()` bound to ONE open-card
+ * thread, posts the assistant's replies back as 开卡向导, and returns the thread's
+ * `deliver` (push input). HITL GLUE — type-checked, not unit-tested (makes the
+ * real `query()` call), exactly like the runners above. The headless seams it
+ * composes (StreamInputChannel, postCardAssistantText, holdInitialDrafts) ARE
+ * unit-tested.
+ */
+export function makeCardCreationAssistant(deps: {
+  readonly discordClient: DiscordClient;
+  readonly onError?: (where: string, error: unknown) => void;
+}): (threadId: string) => (text: string) => void {
+  const onError = deps.onError ?? (() => {});
+  return (threadId: string) => {
+    const channel = new StreamInputChannel();
+    const stream = query({
+      prompt: channel.iterable,
+      options: { systemPrompt: CARD_ASSISTANT_PROMPT, permissionMode: "bypassPermissions" },
+    });
+    void postCardAssistantText(deps.discordClient, threadId, stream).catch((e) =>
+      onError(`cardcreation-assistant:${threadId}`, e),
+    );
+    return (text: string) => channel.push(text);
+  };
 }

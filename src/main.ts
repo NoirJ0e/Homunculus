@@ -25,6 +25,7 @@ import { createDispatcherGatewaySource } from "./adapters/discord/create-gateway
 import { createRealDiscordAdmin } from "./adapters/discord/real-discord-admin.js";
 import { makeRunners } from "./runtime/runners.js";
 import { Dispatcher } from "./runtime/dispatcher.js";
+import { CardCreationSessionTable } from "./runtime/card-creation-session.js";
 
 const auth = resolveAuth(process.env);
 console.log(`[auth] ${auth.kind}`);
@@ -50,6 +51,12 @@ const runners = makeRunners({
   onError: (where, error) => console.error(`[runner-error] ${where}`, error),
 });
 
+// #34 — open-card sessions are command-bound (threadId → session) by the
+// `/create-character-card` handler, NOT topic-routed. The dispatcher checks this
+// table first and short-circuits a bound thread's text to its session. The
+// slash-command source that fills this table is wired in the all-chain (#36).
+const cardSessions = new CardCreationSessionTable();
+
 const dispatcher = new Dispatcher({
   eventSource,
   resolveRouting,
@@ -57,6 +64,7 @@ const dispatcher = new Dispatcher({
   runAidmQuery: runners.runAidmQuery,
   runCardCreationQuery: runners.runCardCreationQuery,
   deleteSession: runners.deleteSession,
+  cardSessionFor: (threadId) => cardSessions.get(threadId),
 });
 
 process.on("SIGINT", () => {

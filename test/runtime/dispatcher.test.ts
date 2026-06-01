@@ -59,10 +59,22 @@ interface Harness {
   dispatcher: Dispatcher;
 }
 
+/** A bound open-card session (#34) — records the thread text streamed to it. */
+interface FakeCardSession {
+  readonly threadId: string;
+  readonly delivered: string[];
+}
+
+interface HarnessOptions {
+  /** #34 open-card session lookup: bound threadId → session, else undefined. */
+  readonly cardSessionFor?: (threadId: string) => FakeCardSession | undefined;
+}
+
 function makeHarness(
   resolveRouting: (
     channelId: string,
   ) => ChannelRouting | null | Promise<ChannelRouting | null>,
+  options: HarnessOptions = {},
 ): Harness {
   const source = new FakeEventSource();
   const concierge = new RecordingRunner();
@@ -78,6 +90,14 @@ function makeHarness(
     deleteSession: (channelId) => {
       deleted.push(channelId);
     },
+    ...(options.cardSessionFor
+      ? {
+          cardSessionFor: (threadId: string) => {
+            const s = options.cardSessionFor?.(threadId);
+            return s ? { deliver: (text: string) => s.delivered.push(text) } : undefined;
+          },
+        }
+      : {}),
   });
   dispatcher.start();
   return { source, concierge, aidm, card, deleted, dispatcher };
@@ -173,5 +193,59 @@ describe("#27 Dispatcher — channel → role → query with on-demand lifecycle
     expect(h.aidm.spinUps).toHaveLength(1);
     expect(h.aidm.spinUps[0]?.firstMessage.messageId).toBe("m1");
     expect(h.aidm.delivered.map((m) => m.messageId)).toEqual(["m2", "m3"]);
+  });
+});
+
+describe("#34 Dispatcher — bound open-card thread short-circuits topic routing", () => {
+  test("message in a bound thread routes to that session, NOT to topic routing", () => {
+    const aliceSession: FakeCardSession = { threadId: "thread-card-alice", delivered: [] };
+    const h = makeHarness(
+      // Topic routing would say aidm — but the open-card session must win.
+      () => ({ campaign: "mine-01", role: "aidm" }),
+      { cardSessionFor: (id) => (id === "thread-card-alice" ? aliceSession : undefined) },
+    );
+
+    h.source.emitMessage(
+      msg({ threadId: "thread-card-alice", content: "我是个图书管理员", messageId: "m1" }),
+    );
+
+    expect(aliceSession.delivered).toEqual(["我是个图书管理员"]);
+    // No topic-routed runner was spun up for the bound thread.
+    expect(h.aidm.spinUps).toHaveLength(0);
+    expect(h.card.spinUps).toHaveLength(0);
+    expect(h.concierge.spinUps).toHaveLength(0);
+  });
+
+  test("a thread NOT bound to a session falls through to topic routing", () => {
+    const h = makeHarness(() => ({ campaign: "mine-01", role: "aidm" }), {
+      cardSessionFor: () => undefined,
+    });
+
+    h.source.emitMessage(msg({ threadId: "chan-main", messageId: "m1" }));
+
+    // Unbound → normal topic routing applies (aidm spun up).
+    expect(h.aidm.spinUps).toHaveLength(1);
+  });
+
+  test("a bound thread's text never crosses into another player's session", () => {
+    const alice: FakeCardSession = { threadId: "thread-alice", delivered: [] };
+    const bob: FakeCardSession = { threadId: "thread-bob", delivered: [] };
+    const sessions = new Map([
+      ["thread-alice", alice],
+      ["thread-bob", bob],
+    ]);
+    const h = makeHarness(() => null, { cardSessionFor: (id) => sessions.get(id) });
+
+    h.source.emitMessage(msg({ threadId: "thread-alice", content: "alice 的话", messageId: "a1" }));
+    h.source.emitMessage(msg({ threadId: "thread-bob", content: "bob 的话", messageId: "b1" }));
+
+    expect(alice.delivered).toEqual(["alice 的话"]);
+    expect(bob.delivered).toEqual(["bob 的话"]);
+  });
+
+  test("no cardSessionFor injected → behavior is unchanged (pure topic routing)", () => {
+    const h = makeHarness(() => ({ campaign: "mine-01", role: "aidm" }));
+    h.source.emitMessage(msg({ threadId: "chan-main", messageId: "m1" }));
+    expect(h.aidm.spinUps).toHaveLength(1);
   });
 });
