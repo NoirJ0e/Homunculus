@@ -113,6 +113,44 @@ const inbox     = new DiscordInbox(client, personas, threadMap);
 
 ---
 
+## v1 playable — `npm start` (ADR-0010)
+
+The first playable session (1 AIDM + 1 NPC companion + 1 human, single thread)
+is wired in `src/main.ts`. You don't hand-wire anything — just set env + run.
+
+**Auth** (preferred, 省钱): `claude setup-token` → paste into `.env` as
+`CLAUDE_CODE_OAUTH_TOKEN`. Or set `ANTHROPIC_API_KEY`.
+
+**`.env`** (copy from `.env.example`):
+
+```
+CLAUDE_CODE_OAUTH_TOKEN=...        # or ANTHROPIC_API_KEY=...
+DISCORD_BOT_TOKEN=...              # bot with Message Content Intent ENABLED
+DISCORD_WEBHOOK_URL=...            # webhook in the channel hosting the scene thread
+DISCORD_SCENE_THREAD_ID=...        # the thread = the single scene
+DISCORD_PLAYER_USER_ID=...         # your Discord user id (routes your turns)
+```
+
+**Run:**
+
+```bash
+npm start          # = node --env-file=.env --import tsx src/main.ts
+```
+
+The DM (a long-lived Agent-SDK `query()`) narrates into the thread, then calls
+`await_actors`; the engine pulls up the NPC (its own `query()`) and **blocks on
+the Discord gateway** waiting for you to type. Real-time waiting is gateway-push
+(`createGatewaySource`), not REST polling — so the bot must have the **Message
+Content Intent** on. An AFK human = the await never resolves (ADR-0003 hold);
+Ctrl-C to stop (serializable pause/resume is a later slice).
+
+> Note: `DiscordInbox` (REST poll) remains for tests; production uses
+> `GatewayInbox` (gateway push). Known v1 cosmetic: your own message is also
+> re-emitted as a "玩家" webhook post (the engine records every turn); harmless,
+> tidied in a later slice.
+
+---
+
 ## Skipped HITL Integration Test
 
 A skipped live-smoke test can be run against a real Discord server:

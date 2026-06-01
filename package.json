@@ -7,10 +7,12 @@
   "scripts": {
     "build": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "start": "node --env-file=.env --import tsx src/main.ts"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
+    "tsx": "^4.19.2",
     "typescript": "^5.5.4",
     "vitest": "^2.0.5"
   },

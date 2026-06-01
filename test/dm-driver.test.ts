@@ -67,6 +67,7 @@ describe("#20 buildDmSystemPrompt — pure prompt assembly", () => {
   test("embeds the campaign brief, the cast, and the load-bearing tool protocol", () => {
     const prompt = buildDmSystemPrompt({
       brief: "玩家们刚踏入暮色酒馆。",
+      sceneId: "scene-tavern",
       cast: [
         { actorId: "npc-rogue", role: "npc" },
         { actorId: "human-1", role: "human" },
@@ -74,6 +75,7 @@ describe("#20 buildDmSystemPrompt — pure prompt assembly", () => {
     });
 
     expect(prompt).toContain("玩家们刚踏入暮色酒馆。");
+    expect(prompt).toContain("scene-tavern"); // the DM must know which scene to act in
     expect(prompt).toContain("npc-rogue");
     expect(prompt).toContain("human-1");
     // The two tools the DM loop hinges on must be named.
