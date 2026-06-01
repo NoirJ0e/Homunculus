@@ -68,6 +68,21 @@ export interface DispatcherDeps {
   readonly runCardCreationQuery: QueryRunner;
   /** Tear down a query's SDK session (called on thread-archived). */
   readonly deleteSession: (channelId: string) => void;
+  /**
+   * #34 — bound open-card session lookup. Open-card threads have NO topic, so
+   * they cannot be topic-routed; `/create-character-card` instead binds
+   * `threadId → session` (command-driven, ADR-0012). When this resolver returns
+   * a session, the dispatcher hands the message's text straight to it and skips
+   * topic routing entirely. Optional + additive: omit it (e.g. older harnesses)
+   * and the dispatcher behaves exactly as before.
+   */
+  readonly cardSessionFor?: (threadId: string) => CardSessionHandle | undefined;
+}
+
+/** A bound open-card session, as the dispatcher sees it (#34). */
+export interface CardSessionHandle {
+  /** Stream a thread message's text to the open-card assistant. */
+  deliver(text: string): void;
 }
 
 export class Dispatcher {
@@ -100,6 +115,15 @@ export class Dispatcher {
 
   private handleMessage(message: GatewayMessage): void {
     const channelId = message.threadId;
+
+    // #34 — additive, localized: a thread bound to an open-card session (via
+    // `/create-character-card`) short-circuits ALL topic routing. The thread has
+    // no topic, so per-player isolation comes from the threadId→session binding.
+    const cardSession = this.deps.cardSessionFor?.(channelId);
+    if (cardSession) {
+      cardSession.deliver(message.content);
+      return;
+    }
 
     const existing = this.active.get(channelId);
     if (existing) {
