@@ -1,7 +1,12 @@
-import { describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { postAssistantText, buildCampaignBrief } from "../../src/runtime/runners.js";
 import type { DiscordClient, SentMessage } from "../../src/adapters/discord/discord-substrate.js";
 import { genesisCampaign } from "../../src/genesis/campaign-genesis.js";
+import { FileCampaignStore } from "../../src/adapters/store/file-campaign-store.js";
+import { campaignId } from "../../src/domain/ids.js";
 
 /**
  * Regression for the live "[ready] 但完全没反应" bug: the conversational concierge /
@@ -93,5 +98,41 @@ describe("buildCampaignBrief", () => {
     const opening = bible.milestones[0];
     expect(opening).toBeDefined();
     if (opening) expect(brief).toContain(opening.enterCue);
+  });
+
+  describe("restart semantics (persistent CampaignStore)", () => {
+    let dataDir: string;
+
+    beforeEach(() => {
+      dataDir = mkdtempSync(join(tmpdir(), "homunculus-runners-"));
+    });
+
+    afterEach(() => {
+      rmSync(dataDir, { recursive: true, force: true });
+    });
+
+    test("the AIDM brief is built from the bible read back through a FRESH store (survives restart)", () => {
+      const camp = campaignId("camp:sunken");
+      const bible = genesisCampaign({
+        premise: "沉船湾海底的古老诅咒正在苏醒",
+        tone: "克系恐怖",
+        desiredClimax: "潜入沉船核心斩断诅咒之源",
+        levelBand: [1, 5],
+      });
+
+      // A prior process writes the bible to disk…
+      new FileCampaignStore(dataDir).set(camp, bible);
+      // …and after a restart, a brand-new store reads it back from disk.
+      const reloaded = new FileCampaignStore(dataDir).get(camp);
+      expect(reloaded).toBeDefined();
+
+      // The AIDM runner builds its brief from exactly that round-tripped bible.
+      const brief = buildCampaignBrief(reloaded!);
+      expect(brief).toContain("沉船湾海底的古老诅咒正在苏醒");
+      expect(brief).toContain("克系恐怖");
+      const opening = reloaded!.milestones[0];
+      expect(opening).toBeDefined();
+      if (opening) expect(brief).toContain(opening.enterCue);
+    });
   });
 });
