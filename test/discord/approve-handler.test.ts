@@ -68,6 +68,7 @@ describe("approve handler (/批准)", () => {
         startGame: async () => {},
         approve,
         setRoster: async () => {},
+        addAiSeat: async () => {},
       }),
       { isOwner: () => false, inRoster: () => true },
     );
@@ -87,6 +88,7 @@ describe("approve handler (/批准)", () => {
         startGame: async () => {},
         approve,
         setRoster: async () => {},
+        addAiSeat: async () => {},
       }),
       { isOwner: () => true, inRoster: () => true },
     );

@@ -83,6 +83,7 @@ function makeRouter() {
       spawnAidm: (c) => void spawns.push(c),
       reply: async (t) => void replies.push(t),
     }),
+    addAiSeat: async () => {},
   });
 
   const router = createCommandRouter(set, authority);

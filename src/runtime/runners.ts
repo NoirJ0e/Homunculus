@@ -12,9 +12,11 @@ import { buildConciergePrompt } from "../adapters/agent-sdk/concierge-prompt.js"
 import { createDiscordAdminMcpServer } from "../adapters/agent-sdk/discord-admin-mcp.js";
 import { createGenesisMcpServer } from "../adapters/agent-sdk/genesis-mcp.js";
 import type { CampaignStore } from "../ports/campaign-store.js";
+import type { SoulStore } from "../ports/soul-store.js";
+import type { RosterStore } from "../ports/roster-store.js";
 import type { CampaignBible } from "../domain/campaign.js";
 import { dmQueryStream, npcGenerate } from "../adapters/agent-sdk/sdk-runner.js";
-import { genesisFullAuto } from "../genesis/soul-genesis.js";
+import { assembleAidmCast } from "./aidm-cast.js";
 import { runDmDriver } from "./dm-driver.js";
 import { PushInbox } from "./push-inbox.js";
 import { StreamInputChannel } from "./stream-input.js";
@@ -70,6 +72,17 @@ export interface RunnerDeps {
    * context survives a restart (the in-memory Map of ADR-0011 forgot on restart).
    */
   readonly campaignStore: CampaignStore;
+  /**
+   * Persisted souls (#30, ADR-0004). The AIDM runner reads its VERIFIED, BOUND AI
+   * teammates back from here — replacing ADR-0011's inlined `genesisFullAuto`
+   * bypass (which dodged 审卡). Souls are saved here at bind time (`addAiSeat`).
+   */
+  readonly soulStore: SoulStore;
+  /**
+   * The explicit party list (#30, ADR-0012). The AIDM runner reads it to find
+   * which seats are approved AI teammates whose souls to load into the cast.
+   */
+  readonly rosterStore: RosterStore;
   /** Default archetype for v1 one-click teammate genesis. */
   readonly defaultArchetype?: string;
   /** Whether the AIDM session is still live (drives the dm-driver restart net). */
@@ -116,7 +129,6 @@ export async function postAssistantText(
 }
 
 export function makeRunners(deps: RunnerDeps): Runners {
-  const archetype = deps.defaultArchetype ?? "战士";
   const onError = deps.onError ?? (() => {});
 
   // Persistent campaign registry (#32): the concierge's genesis_campaign tool
@@ -130,58 +142,72 @@ export function makeRunners(deps: RunnerDeps): Runners {
   /**
    * AIDM runner. Assembles a minimal v1 Referee for the channel's routing:
    *   - substrate = the channel's scene wired to the shared webhook client;
-   *   - one AI teammate NPC, filled one-click via genesisFullAuto → AgentNpc;
-   *   - roster = { human, npc }; aidm is the sole narrator.
+   *   - the campaign's VERIFIED, BOUND AI teammate(s) loaded from the roster +
+   *     SoulStore (`assembleAidmCast`) → AgentNpc, using the SAVED soul's persona;
+   *   - roster = { human, …teammates }; aidm is the sole narrator.
    * Then drives a long-lived dm-driver. The first message is fed into the
    * push-inbox so the AIDM's first `await_actors` consumes it.
    *
-   * v1 SHORTCUT (flagged): the cast is assembled inline from genesisFullAuto, not
-   * read back from a soul-store keyed by routing.campaign. Full soul-store wiring
-   * (persisted, evolving teammates addressed by campaign id) is out of scope here.
+   * ADR-0012 修正 (#37): this REPLACES the ADR-0011 bypass that inlined
+   * `genesisFullAuto` at spin-up to conjure an UNVERIFIED teammate. Teammates are
+   * now created→verified→bound during prep (`addAiSeat`) and read back here. If no
+   * bound teammate exists the cast DEGRADES gracefully (flagged): the AIDM opens
+   * solo with the human, no NPC.
    */
   const runAidmQuery = (ctx: QueryRunnerContext): QueryHandle => {
     const sceneName = ctx.routing.scene ?? ctx.routing.campaign;
     const scene = brandScene(sceneName);
+    const campaign = campaignId(ctx.routing.campaign);
 
     const aidm = actorId("aidm");
     const human = actorId("player");
-    const npcId = actorId("npc-teammate");
 
-    const soul = genesisFullAuto(npcId, archetype);
-    const npcPersona = [
-      `你是 ${soul.personaCore.name}。`,
-      `性格：${soul.personaCore.temperament}`,
-      soul.personaCore.goals.length > 0 ? `目标：${soul.personaCore.goals.join("；")}` : "",
-    ]
-      .filter((s) => s.length > 0)
-      .join("\n");
+    // Load the campaign's verified, bound AI teammates from the stores — no more
+    // inlined genesis. The NPC persona comes from the SAVED soul.
+    const cast = assembleAidmCast({
+      rosterStore: deps.rosterStore,
+      soulStore: deps.soulStore,
+      campaign,
+      humanId: human,
+    });
+    if (cast.degraded) {
+      onError(`aidm:${ctx.channelId}`, new Error("no bound AI teammate — AIDM opening solo"));
+    }
 
-    const personas: ActorPersona[] = [
-      { actorId: aidm, username: "地下城主" },
-      { actorId: npcId, username: soul.personaCore.name },
-      { actorId: human, username: "玩家" },
-    ];
+    const personas: ActorPersona[] = [{ actorId: aidm, username: "地下城主" }, ...cast.personas];
 
     // The channel IS the scene: route every post to ctx.channelId.
     const threadMap = { [scene]: ctx.channelId };
     const substrate = new DiscordSubstrate(deps.discordClient, personas, threadMap);
 
     const inbox = new PushInbox();
-    const npc = new AgentNpc({ persona: npcPersona, generate: npcGenerate });
-    const roster = mapRoster({ [human]: "human", [npcId]: "ai" });
+    const roster = mapRoster(cast.rosterKinds);
+    const npc =
+      cast.npcPersona !== undefined
+        ? new AgentNpc({ persona: cast.npcPersona, generate: npcGenerate })
+        : undefined;
 
-    const referee = new Referee({ aidmId: aidm, substrate, npc, humanInbox: inbox, roster });
+    const referee = new Referee(
+      npc !== undefined
+        ? { aidmId: aidm, substrate, npc, humanInbox: inbox, roster }
+        : { aidmId: aidm, substrate, humanInbox: inbox, roster },
+    );
 
-    const bible = campaignStore.get(campaignId(ctx.routing.campaign));
+    const bible = campaignStore.get(campaign);
     const campaignBrief = bible
       ? buildCampaignBrief(bible)
       : `战役 ${ctx.routing.campaign}：未登记战役语境，按通用开场处理。`;
+    const teammateNames = cast.teammates.map((t) => t.personaCore.name).join("、");
+    const opening =
+      cast.teammates.length > 0
+        ? `在主线频道开场，承接玩家与队友 ${teammateNames} 的行动。`
+        : "在主线频道开场，承接玩家的行动（暂无 AI 队友，独自开场）。";
     const systemPrompt = buildDmSystemPrompt({
-      brief: `${campaignBrief}\n\n在主线频道开场，承接玩家与队友 ${soul.personaCore.name} 的行动。`,
+      brief: `${campaignBrief}\n\n${opening}`,
       sceneId: scene,
       cast: [
-        { actorId: npcId, role: "npc" },
-        { actorId: human, role: "human" },
+        ...cast.teammates.map((t) => ({ actorId: t.id, role: "npc" as const })),
+        { actorId: human, role: "human" as const },
       ],
     });
 
