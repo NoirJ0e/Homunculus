@@ -1,5 +1,5 @@
 import type { DiscordClient } from "../adapters/discord/discord-substrate.js";
-import type { CharacterSheet } from "../ports/card-store.js";
+import type { CharacterSheet, DiceSystem } from "../ports/card-store.js";
 import type { PersonaSeed } from "../domain/soul.js";
 import { createSoul } from "../domain/soul.js";
 import { postAssistantText } from "./runners.js";
@@ -46,6 +46,28 @@ export const DEFAULT_COC7_SHEET: CharacterSheet = {
     斗殴: 25,
   },
 };
+
+/**
+ * v1 flagged baseline sheet for D&D 5e — a standard-array ability spread.
+ * Placeholder like {@link DEFAULT_COC7_SHEET} (SealDice owns the real sheet,
+ * ADR-0001); its job here is only to make the card's `system` MATCH the
+ * campaign's so the verifier's system-fit check doesn't falsely reject.
+ */
+export const DEFAULT_DND5E_SHEET: CharacterSheet = {
+  system: "dnd5e",
+  skills: { 力量: 15, 敏捷: 13, 体质: 14, 智力: 10, 感知: 12, 魅力: 8 },
+  modifiers: { 力量: 2, 敏捷: 1, 体质: 2, 智力: 0, 感知: 1, 魅力: -1 },
+};
+
+/**
+ * The v1 placeholder baseline sheet matching a campaign's rule SYSTEM. The
+ * open-card assistant doesn't yet emit a structured sheet, so this is the
+ * fallback — keyed by system so a card in a dnd5e campaign isn't stuck with a
+ * CoC7 sheet (which the verifier would rightly reject as system-incompatible).
+ */
+export function defaultSheetFor(system: DiceSystem): CharacterSheet {
+  return system === "dnd5e" ? DEFAULT_DND5E_SHEET : DEFAULT_COC7_SHEET;
+}
 
 /**
  * Drain the open-card assistant's streaming reply and post each text block into

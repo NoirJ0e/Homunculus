@@ -35,7 +35,7 @@ import { CardCreationSessionTable } from "./runtime/card-creation-session.js";
 import { CardVerifySessionTable } from "./runtime/card-verify-session.js";
 import { buildLegality, type CampaignLegality } from "./runtime/card-verifier.js";
 import { readCardUnderReview } from "./runtime/read-card-under-review.js";
-import { DEFAULT_COC7_SHEET } from "./runtime/card-creation.js";
+import { defaultSheetFor } from "./runtime/card-creation.js";
 import { campaignId, actorId, type CampaignId } from "./domain/ids.js";
 import {
   createCommandSource,
@@ -149,6 +149,13 @@ const channelCampaign = new Map<string, CampaignId>();
 const resolveCampaign = (event: CommandEvent): CampaignId =>
   channelCampaign.get(event.channelId) ?? campaignId(cfg.lobbyCampaign);
 
+// The campaign's rule system (coc7/dnd5e) — drives the v1 placeholder sheet so a
+// card's system MATCHES its campaign (else the verifier's system-fit check would
+// reject every card whose fallback sheet didn't match). Defaults to coc7 when no
+// bible is registered yet.
+const systemFor = (event: CommandEvent) =>
+  campaignStore.get(resolveCampaign(event))?.system ?? "coc7";
+
 const authority = createCampaignAuthority({ metaStore, rosterStore, resolveCampaign });
 
 // The authoritative legality the verifier adjudicates against (#35): the
@@ -198,7 +205,7 @@ const commandSet = createCommandSet({
         sessionFor: (threadId) => cardSessions.get(threadId),
         actorId: actorId(event.invokerId),
         fallbackArchetype: cfg.defaultArchetype,
-        fallbackSheet: DEFAULT_COC7_SHEET,
+        fallbackSheet: defaultSheetFor(systemFor(event)),
       }),
     readLegality,
     soulStore,
@@ -215,7 +222,7 @@ const commandSet = createCommandSet({
     resolveCampaign,
     resolveActor: (event) => actorId(event.options["name"] ?? `ai:${event.options["archetype"] ?? cfg.defaultArchetype}`),
     legality: readLegality,
-    sheetFor: () => DEFAULT_COC7_SHEET,
+    sheetFor: (event) => defaultSheetFor(systemFor(event)),
     verifierLlm: () => verifierLlm,
     reviser: aiReviser,
     soulStore,
