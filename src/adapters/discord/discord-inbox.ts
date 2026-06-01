@@ -54,6 +54,7 @@
 
 import type { ActorId, SceneId } from "../../domain/ids.js";
 import type { HumanInboxPort, HumanTurn } from "../../ports/human-inbox.js";
+import { mapContentToTurn } from "./message-mapping.js";
 import type { ActorPersona, SceneThreadMap } from "./scene-threads.js";
 
 // ---------------------------------------------------------------------------
@@ -88,34 +89,8 @@ export class DiscordInboxError extends Error {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Message content → HumanTurn mapping
-// ---------------------------------------------------------------------------
-
-const PASS_EXACT = new Set(["pass", "pass你们继续"]);
-
-/**
- * Maps a raw Discord message content string to a HumanTurn.
- *
- * Convention:
- *   ".ra" prefix (case-insensitive) → roll
- *   "pass" / "pass你们继续" (trimmed, case-insensitive) → pass
- *   anything else → prose
- */
-function mapContentToTurn(raw: string): HumanTurn {
-  const trimmed = raw.trim();
-  const lower = trimmed.toLowerCase();
-
-  if (lower.startsWith(".ra")) {
-    return { kind: "roll" };
-  }
-
-  if (PASS_EXACT.has(lower)) {
-    return { kind: "pass" };
-  }
-
-  return { kind: "prose", prose: trimmed };
-}
+// Message content → HumanTurn mapping now lives in ./message-mapping.ts
+// (shared with GatewayInbox so the inbound convention is transport-agnostic).
 
 // ---------------------------------------------------------------------------
 // DiscordInbox
