@@ -60,13 +60,24 @@ export interface CommandEventSource {
  * the pure mapping above). Webhooks/bots cannot fire these — only real humans.
  */
 export async function createCommandSource(botToken: string): Promise<CommandEventSource> {
-  const { Client, GatewayIntentBits } = await import("discord.js");
+  const { Client, GatewayIntentBits, MessageFlags } = await import("discord.js");
 
   const client = new Client({ intents: [GatewayIntentBits.Guilds] });
   const handlers: Array<(e: CommandEvent) => void> = [];
 
   client.on("interactionCreate", (interaction) => {
-    const event = mapInteractionToCommandEvent(interaction as unknown as InteractionLike);
+    const chat = interaction as unknown as InteractionLike & {
+      reply: (options: unknown) => Promise<unknown>;
+    };
+    if (!chat.isChatInputCommand()) return;
+    // ACK inside Discord's 3-second window, else the client shows "The
+    // application did not respond". The command's real output is posted to the
+    // channel/thread via webhook by the handlers, so an ephemeral receipt is
+    // all the interaction itself needs. Ack BEFORE dispatching (handlers may do
+    // slow async work — create a thread, run a query — and don't hold the
+    // interaction object).
+    void chat.reply({ content: "收到，正在处理……", flags: MessageFlags.Ephemeral }).catch(() => {});
+    const event = mapInteractionToCommandEvent(chat);
     if (event === null) return;
     for (const h of handlers) h(event);
   });
