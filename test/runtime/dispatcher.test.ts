@@ -117,15 +117,28 @@ describe("#27 Dispatcher — channel → role → query with on-demand lifecycle
     expect(h.concierge.delivered[0]?.messageId).toBe("m2");
   });
 
-  test("role=aidm channel first message → AIDM spun up once, later messages routed to same slot", () => {
+  test("#33 OPEN GATE: a plain message in a role=aidm channel with NO active query does NOT spawn the AIDM", () => {
+    // The original pain (ADR-0012): the main channel auto-started the AIDM on
+    // ANY message. The open gate now requires the owner's `/开场` (start-game);
+    // a plain message must NOT spin the AIDM up.
     const h = makeHarness(() => ({ campaign: "mine-01", role: "aidm", scene: "tavern" }));
 
     h.source.emitMessage(msg({ threadId: "chan-main", messageId: "m1" }));
+    h.source.emitMessage(msg({ threadId: "chan-main", messageId: "m2" }));
+
+    expect(h.aidm.spinUps).toHaveLength(0);
+    expect(h.concierge.spinUps).toHaveLength(0);
+  });
+
+  test("#33 after the AIDM is started, a later message routes to the running AIDM's slot", () => {
+    const h = makeHarness(() => ({ campaign: "mine-01", role: "aidm", scene: "tavern" }));
+
+    // start-game starts the AIDM (the handler calls this seam).
+    h.dispatcher.startAidm("chan-main", { campaign: "mine-01", role: "aidm", scene: "tavern" });
     expect(h.aidm.spinUps).toHaveLength(1);
     expect(h.aidm.spinUps[0]?.routing.role).toBe("aidm");
-    expect(h.aidm.spinUps[0]?.firstMessage.messageId).toBe("m1");
-    expect(h.concierge.spinUps).toHaveLength(0);
 
+    // Now normal messages route to the running AIDM (existing deliver path).
     h.source.emitMessage(msg({ threadId: "chan-main", messageId: "m2" }));
     h.source.emitMessage(msg({ threadId: "chan-main", messageId: "m3" }));
     expect(h.aidm.spinUps).toHaveLength(1);
@@ -179,20 +192,23 @@ describe("#27 Dispatcher — channel → role → query with on-demand lifecycle
   });
 
   test("messages racing in during async resolution buffer to the one spun-up slot", async () => {
-    const h = makeHarness(async () => ({ campaign: "mine-01", role: "aidm" }));
+    // Uses a concierge channel: concierge still auto-spins on first message, so
+    // this exercises the async-resolve race-buffering (the aidm path is gated by
+    // #33 and only starts via start-game, covered separately above).
+    const h = makeHarness(async () => ({ campaign: "root", role: "concierge" }));
 
-    h.source.emitMessage(msg({ threadId: "chan-main", messageId: "m1" }));
+    h.source.emitMessage(msg({ threadId: "chan-general", messageId: "m1" }));
     // Two more arrive before the (async) routing resolves.
-    h.source.emitMessage(msg({ threadId: "chan-main", messageId: "m2" }));
-    h.source.emitMessage(msg({ threadId: "chan-main", messageId: "m3" }));
+    h.source.emitMessage(msg({ threadId: "chan-general", messageId: "m2" }));
+    h.source.emitMessage(msg({ threadId: "chan-general", messageId: "m3" }));
 
     await Promise.resolve();
     await Promise.resolve();
 
     // Spun up exactly once; the racers were flushed to its slot in order.
-    expect(h.aidm.spinUps).toHaveLength(1);
-    expect(h.aidm.spinUps[0]?.firstMessage.messageId).toBe("m1");
-    expect(h.aidm.delivered.map((m) => m.messageId)).toEqual(["m2", "m3"]);
+    expect(h.concierge.spinUps).toHaveLength(1);
+    expect(h.concierge.spinUps[0]?.firstMessage.messageId).toBe("m1");
+    expect(h.concierge.delivered.map((m) => m.messageId)).toEqual(["m2", "m3"]);
   });
 });
 
@@ -217,14 +233,14 @@ describe("#34 Dispatcher — bound open-card thread short-circuits topic routing
   });
 
   test("a thread NOT bound to a session falls through to topic routing", () => {
-    const h = makeHarness(() => ({ campaign: "mine-01", role: "aidm" }), {
+    const h = makeHarness(() => ({ campaign: "root", role: "concierge" }), {
       cardSessionFor: () => undefined,
     });
 
-    h.source.emitMessage(msg({ threadId: "chan-main", messageId: "m1" }));
+    h.source.emitMessage(msg({ threadId: "chan-general", messageId: "m1" }));
 
-    // Unbound → normal topic routing applies (aidm spun up).
-    expect(h.aidm.spinUps).toHaveLength(1);
+    // Unbound → normal topic routing applies (concierge spun up).
+    expect(h.concierge.spinUps).toHaveLength(1);
   });
 
   test("a bound thread's text never crosses into another player's session", () => {
@@ -244,8 +260,8 @@ describe("#34 Dispatcher — bound open-card thread short-circuits topic routing
   });
 
   test("no cardSessionFor injected → behavior is unchanged (pure topic routing)", () => {
-    const h = makeHarness(() => ({ campaign: "mine-01", role: "aidm" }));
-    h.source.emitMessage(msg({ threadId: "chan-main", messageId: "m1" }));
-    expect(h.aidm.spinUps).toHaveLength(1);
+    const h = makeHarness(() => ({ campaign: "root", role: "concierge" }));
+    h.source.emitMessage(msg({ threadId: "chan-general", messageId: "m1" }));
+    expect(h.concierge.spinUps).toHaveLength(1);
   });
 });
