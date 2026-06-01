@@ -60,7 +60,9 @@ interface Harness {
 }
 
 function makeHarness(
-  resolveRouting: (channelId: string) => ChannelRouting | null,
+  resolveRouting: (
+    channelId: string,
+  ) => ChannelRouting | null | Promise<ChannelRouting | null>,
 ): Harness {
   const source = new FakeEventSource();
   const concierge = new RecordingRunner();
@@ -141,5 +143,35 @@ describe("#27 Dispatcher — channel → role → query with on-demand lifecycle
     expect(h.concierge.spinUps).toHaveLength(0);
     expect(h.aidm.spinUps).toHaveLength(0);
     expect(h.card.spinUps).toHaveLength(0);
+  });
+
+  test("async resolveRouting (live topic fetch) → spins up once after resolution", async () => {
+    const h = makeHarness(async () => ({ campaign: "root", role: "concierge" }));
+
+    h.source.emitMessage(msg({ threadId: "chan-general", messageId: "m1" }));
+    // Not spun up synchronously — the resolution is in flight.
+    expect(h.concierge.spinUps).toHaveLength(0);
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(h.concierge.spinUps).toHaveLength(1);
+    expect(h.concierge.spinUps[0]?.firstMessage.messageId).toBe("m1");
+  });
+
+  test("messages racing in during async resolution buffer to the one spun-up slot", async () => {
+    const h = makeHarness(async () => ({ campaign: "mine-01", role: "aidm" }));
+
+    h.source.emitMessage(msg({ threadId: "chan-main", messageId: "m1" }));
+    // Two more arrive before the (async) routing resolves.
+    h.source.emitMessage(msg({ threadId: "chan-main", messageId: "m2" }));
+    h.source.emitMessage(msg({ threadId: "chan-main", messageId: "m3" }));
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Spun up exactly once; the racers were flushed to its slot in order.
+    expect(h.aidm.spinUps).toHaveLength(1);
+    expect(h.aidm.spinUps[0]?.firstMessage.messageId).toBe("m1");
+    expect(h.aidm.delivered.map((m) => m.messageId)).toEqual(["m2", "m3"]);
   });
 });
