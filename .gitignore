@@ -47,6 +47,9 @@ START.sh
 *.pem
 *.p12
 *.pfx
+
+# Runtime campaign data (ADR-0012 file stores: bibles / rosters / souls / sheets)
+data/
 *.jks
 *.kdbx
 id_rsa
