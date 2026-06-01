@@ -124,7 +124,8 @@ describe("#33 open-gate end-to-end (router + real authority)", () => {
       event({ name: "set-roster", invokerId: "owner-1", options: { player1: "user-a", player2: "user-b" } }),
     );
     const declared = h.rosterStore.get(campaignId("mine-01"));
-    expect(declared).toHaveLength(2);
+    // owner-1 is auto-included alongside the two @'d players.
+    expect(declared).toHaveLength(3);
     expect(declared?.every((e) => !e.approved)).toBe(true);
 
     // Not all approved yet → start-game denied? No: owner IS permitted; the
@@ -133,7 +134,8 @@ describe("#33 open-gate end-to-end (router + real authority)", () => {
     expect(blocked.kind).toBe("dispatched");
     expect(h.spawns).toHaveLength(0);
 
-    // Approve both, then start succeeds.
+    // Approve ALL three (incl. the auto-included owner), then start succeeds.
+    h.rosterStore.markApproved(campaignId("mine-01"), actorId("actor-owner-1"));
     h.rosterStore.markApproved(campaignId("mine-01"), actorId("actor-user-a"));
     h.rosterStore.markApproved(campaignId("mine-01"), actorId("actor-user-b"));
     await h.router.dispatch(event({ name: "start-game", invokerId: "owner-1", channelId: "chan-main" }));

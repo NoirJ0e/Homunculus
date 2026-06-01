@@ -61,8 +61,13 @@ export function createSetRosterHandler(deps: SetRosterDeps): CommandHandler {
       return;
     }
 
-    const players = parsePlayers(event.options);
-    const entries: RosterEntry[] = players.map((discordUserId) => ({
+    // The invoker (owner) is a player by default (blindbox, ADR-0007) — auto-add
+    // them so they never have to pick themselves in the @-picker (which may not
+    // surface self in a fresh server). @'d players are added alongside; deduped.
+    const ids = [event.invokerId, ...parsePlayers(event.options)].filter(
+      (id, i, all) => all.indexOf(id) === i,
+    );
+    const entries: RosterEntry[] = ids.map((discordUserId) => ({
       actorId: deps.resolveActor(discordUserId),
       discordUserId,
       kind: "human",
@@ -74,9 +79,9 @@ export function createSetRosterHandler(deps: SetRosterDeps): CommandHandler {
     if (claimed) deps.metaStore.set(campaign, { ownerId: event.invokerId });
 
     await deps.reply(
-      `名单已登记：${players.length} 名玩家（待开卡过审）。` +
+      `名单已登记：${ids.length} 名玩家（含你自己，待开卡过审）。` +
         `${claimed ? "你已成为本团 owner。" : ""}` +
-        "全员过审后用 `/start-game` 开场。",
+        "各自 `/create-character-card` 开卡过审后，owner 用 `/start-game` 开场。",
     );
   };
 }

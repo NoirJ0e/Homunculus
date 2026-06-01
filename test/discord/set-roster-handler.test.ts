@@ -67,20 +67,30 @@ function makeHandler() {
 }
 
 describe("setRoster handler", () => {
-  test("writes one unapproved human entry per @'d player", async () => {
+  test("auto-includes the invoker plus one unapproved human entry per @'d player", async () => {
     const h = makeHandler();
-    await h.handler(event());
+    await h.handler(event()); // invoker owner-1, players user-alice + user-bob
 
     const entries = h.roster.get(campaignId("mine-01"));
     expect(entries).toBeDefined();
-    expect(entries).toHaveLength(2);
-    expect(entries?.map((e) => e.discordUserId)).toEqual(["user-alice", "user-bob"]);
+    // The invoker (owner) is auto-added first, then the @'d players (deduped).
+    expect(entries).toHaveLength(3);
+    expect(entries?.map((e) => e.discordUserId)).toEqual(["owner-1", "user-alice", "user-bob"]);
     expect(entries?.map((e) => e.actorId)).toEqual([
+      actorId("actor-owner-1"),
       actorId("actor-user-alice"),
       actorId("actor-user-bob"),
     ]);
     expect(entries?.every((e) => e.kind === "human")).toBe(true);
     expect(entries?.every((e) => e.approved === false)).toBe(true);
+  });
+
+  test("with no @'d players, the roster is just the invoker (solo owner-as-player)", async () => {
+    const h = makeHandler();
+    await h.handler(event({ invokerId: "solo", options: {} }));
+
+    const entries = h.roster.get(campaignId("mine-01"));
+    expect(entries?.map((e) => e.discordUserId)).toEqual(["solo"]);
   });
 
   test("persists the invoking owner so isOwner has a stored owner to check", async () => {
@@ -95,7 +105,8 @@ describe("setRoster handler", () => {
     await h.handler(event({ invokerId: "first-mover" }));
 
     expect(h.meta.get(campaignId("mine-01"))?.ownerId).toBe("first-mover");
-    expect(h.roster.get(campaignId("mine-01"))).toHaveLength(2);
+    // first-mover (auto-included) + user-alice + user-bob
+    expect(h.roster.get(campaignId("mine-01"))).toHaveLength(3);
     expect(h.replies[0]).toContain("owner");
   });
 
@@ -117,7 +128,8 @@ describe("setRoster handler", () => {
     await h.handler(event({ invokerId: "owner-1", options: { player1: "user-alice" } }));
     await h.handler(event({ invokerId: "owner-1", options: { player1: "user-alice", player2: "user-bob" } }));
 
-    expect(h.roster.get(campaignId("mine-01"))).toHaveLength(2);
+    // owner-1 (auto-included) + user-alice + user-bob
+    expect(h.roster.get(campaignId("mine-01"))).toHaveLength(3);
     expect(h.meta.get(campaignId("mine-01"))?.ownerId).toBe("owner-1");
   });
 });

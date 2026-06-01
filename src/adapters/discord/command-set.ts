@@ -58,13 +58,16 @@ export interface CommandOption {
  * values out of {@link CommandEvent.options} by these (ASCII) names.
  */
 export const COMMAND_OPTIONS: Readonly<Record<string, readonly CommandOption[]>> = {
-  // Up to 5 players via the native @-picker (player1 required, rest optional).
+  // Up to 5 OTHER players via the native @-picker — all optional, because the
+  // invoker (owner) is auto-added to the roster (blindbox: owner is a player,
+  // ADR-0007), so you never have to pick yourself (the picker may not surface
+  // self in a fresh server). @ here only to add OTHER players.
   "set-roster": [
-    { type: 6, name: "player1", description: "玩家 1（@ 选择；要自己下场就 @ 自己）", required: true },
-    { type: 6, name: "player2", description: "玩家 2（可选）" },
-    { type: 6, name: "player3", description: "玩家 3（可选）" },
-    { type: 6, name: "player4", description: "玩家 4（可选）" },
-    { type: 6, name: "player5", description: "玩家 5（可选）" },
+    { type: 6, name: "player1", description: "另一位玩家（@ 选择；你自己会自动加入，无需 @ 自己）" },
+    { type: 6, name: "player2", description: "另一位玩家（可选）" },
+    { type: 6, name: "player3", description: "另一位玩家（可选）" },
+    { type: 6, name: "player4", description: "另一位玩家（可选）" },
+    { type: 6, name: "player5", description: "另一位玩家（可选）" },
   ],
   approve: [
     { type: 3, name: "item", description: "要批准放行的物品/设定", required: true },
