@@ -5,7 +5,8 @@ import {
   type McpSdkServerConfigWithInstance,
   type SdkMcpToolDefinition,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { CampaignBible } from "../../domain/campaign.js";
+import type { CampaignStore } from "../../ports/campaign-store.js";
+import { campaignId } from "../../domain/ids.js";
 import { genesisCampaign } from "../../genesis/campaign-genesis.js";
 
 /**
@@ -14,19 +15,16 @@ import { genesisCampaign } from "../../genesis/campaign-genesis.js";
  * id as "campaign" and narrated off-theme content).
  *
  * `genesis_campaign` takes the chatted-out CampaignSeed, runs the deterministic
- * `genesisCampaign` distiller, and REGISTERS the resulting bible in a shared
- * in-memory {@link CampaignStore} keyed by campaign id (= the Discord category id
- * the concierge just created). The AIDM runner reads it back to build a brief.
+ * `genesisCampaign` distiller, and PERSISTS the resulting bible via the injected
+ * {@link CampaignStore} port keyed by campaign id (= the Discord category id the
+ * concierge just created). The AIDM runner reads it back to build a brief.
  *
- * v1 SCOPE: the store is in-memory (single process), so campaign context is lost
- * on restart — PERSISTENT, evolving campaign/soul storage (keyed by campaign id,
- * tied to ADR-0004 git canonicity) is the separate slice #29. This deliberately
- * does NOT decide a persistence location.
+ * #32: the store is now the file-backed CampaignStore (ADR-0012), so campaign
+ * context survives a restart — the bible lands on disk, not just in memory.
  *
- * Purity: adapter ring; imports only genesis + domain types, never src/engine/.
+ * Purity: adapter ring; imports only the port + genesis + domain types, never
+ * src/engine/. AIDM stays read-only (ADR-0002); this is the concierge write seam.
  */
-export type CampaignStore = Map<string, CampaignBible>;
-
 export function genesisTools(store: CampaignStore): SdkMcpToolDefinition<any>[] {
   return [
     tool(
@@ -47,7 +45,7 @@ export function genesisTools(store: CampaignStore): SdkMcpToolDefinition<any>[] 
           desiredClimax: args.desiredClimax,
           levelBand: [args.minLevel, args.maxLevel],
         });
-        store.set(args.campaignId, bible);
+        store.set(campaignId(args.campaignId), bible);
         return {
           content: [
             {

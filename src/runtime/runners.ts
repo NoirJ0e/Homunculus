@@ -1,7 +1,7 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { DiscordAdminPort } from "../ports/discord-admin.js";
 import type { DiscordClient } from "../adapters/discord/discord-substrate.js";
-import { actorId, sceneId as brandScene } from "../domain/ids.js";
+import { actorId, sceneId as brandScene, campaignId } from "../domain/ids.js";
 import type { ActorPersona } from "../adapters/discord/scene-threads.js";
 import { DiscordSubstrate } from "../adapters/discord/discord-substrate.js";
 import { Referee } from "../engine/referee.js";
@@ -10,7 +10,8 @@ import { AgentNpc } from "../adapters/agent-sdk/agent-npc.js";
 import { buildDmSystemPrompt } from "../adapters/agent-sdk/dm-prompt.js";
 import { buildConciergePrompt } from "../adapters/agent-sdk/concierge-prompt.js";
 import { createDiscordAdminMcpServer } from "../adapters/agent-sdk/discord-admin-mcp.js";
-import { createGenesisMcpServer, type CampaignStore } from "../adapters/agent-sdk/genesis-mcp.js";
+import { createGenesisMcpServer } from "../adapters/agent-sdk/genesis-mcp.js";
+import type { CampaignStore } from "../ports/campaign-store.js";
 import type { CampaignBible } from "../domain/campaign.js";
 import { dmQueryStream, npcGenerate } from "../adapters/agent-sdk/sdk-runner.js";
 import { genesisFullAuto } from "../genesis/soul-genesis.js";
@@ -61,6 +62,13 @@ export interface RunnerDeps {
   readonly discordClient: DiscordClient;
   /** The concierge's provisioning powers (real-discord-admin in production). */
   readonly adminPort: DiscordAdminPort;
+  /**
+   * Persistent campaign registry (#32, ADR-0012): the concierge's genesis_campaign
+   * tool writes the CampaignBible here keyed by campaign id, and the AIDM runner
+   * reads it back to build its brief. File-backed in production, so campaign
+   * context survives a restart (the in-memory Map of ADR-0011 forgot on restart).
+   */
+  readonly campaignStore: CampaignStore;
   /** Default archetype for v1 one-click teammate genesis. */
   readonly defaultArchetype?: string;
   /** Whether the AIDM session is still live (drives the dm-driver restart net). */
@@ -110,10 +118,10 @@ export function makeRunners(deps: RunnerDeps): Runners {
   const archetype = deps.defaultArchetype ?? "战士";
   const onError = deps.onError ?? (() => {});
 
-  // Shared in-memory campaign registry: the concierge's genesis_campaign tool
+  // Persistent campaign registry (#32): the concierge's genesis_campaign tool
   // writes a CampaignBible keyed by campaign id; the AIDM runner reads it back.
-  // In-memory only (v1) — persistent/evolving storage is issue #29.
-  const campaignStore: CampaignStore = new Map();
+  // File-backed → survives restart (the ADR-0011 in-memory Map did not).
+  const campaignStore = deps.campaignStore;
 
   // Per-channel teardown hooks the dispatcher's thread-archive handler invokes.
   const teardowns = new Map<string, () => void>();
@@ -163,7 +171,7 @@ export function makeRunners(deps: RunnerDeps): Runners {
 
     const referee = new Referee({ aidmId: aidm, substrate, npc, humanInbox: inbox, roster });
 
-    const bible = campaignStore.get(ctx.routing.campaign);
+    const bible = campaignStore.get(campaignId(ctx.routing.campaign));
     const campaignBrief = bible
       ? buildCampaignBrief(bible)
       : `战役 ${ctx.routing.campaign}：未登记战役语境，按通用开场处理。`;

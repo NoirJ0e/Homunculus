@@ -24,6 +24,7 @@ import { createWebhookPostingClient } from "./adapters/discord/create-real-disco
 import { createDispatcherGatewaySource } from "./adapters/discord/create-gateway-source.js";
 import { createRealDiscordAdmin } from "./adapters/discord/real-discord-admin.js";
 import { makeRunners } from "./runtime/runners.js";
+import { FileCampaignStore } from "./adapters/store/file-campaign-store.js";
 import { Dispatcher } from "./runtime/dispatcher.js";
 
 const auth = resolveAuth(process.env);
@@ -42,9 +43,14 @@ const adminPort = await createRealDiscordAdmin({ botToken: cfg.botToken, guildId
 
 let active = true;
 
+// Persistent campaign bibles (#32, ADR-0012): survives restart so the AIDM still
+// knows which campaign it's running after a process bounce.
+const campaignStore = new FileCampaignStore(process.env.DATA_DIR ?? "data");
+
 const runners = makeRunners({
   discordClient,
   adminPort,
+  campaignStore,
   defaultArchetype: cfg.defaultArchetype,
   isSessionActive: () => active,
   onError: (where, error) => console.error(`[runner-error] ${where}`, error),
