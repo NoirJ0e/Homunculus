@@ -169,3 +169,63 @@ export async function createRealDiscordClient(
     },
   };
 }
+
+// ---------------------------------------------------------------------------
+// Multi-channel webhook-posting client (ADR-0011 Phase 5)
+// ---------------------------------------------------------------------------
+
+/**
+ * A {@link DiscordClient} for the zero-friction-genesis model where each routed
+ * AIDM channel posts as personas via ITS OWN webhook (the concierge creates the
+ * channels at runtime; there is no single hand-copied webhook URL anymore).
+ *
+ * On the first post to a channel it fetches-or-creates a bot-owned webhook on
+ * that channel and caches it, then posts each persona message through it with
+ * the actor's username/avatar. `fetchMessages` is unused in the gateway-push
+ * model (the dispatcher feeds messages), so it returns empty.
+ *
+ * GLUE — HITL, NOT unit-tested (dynamic-imports discord.js, like its siblings).
+ */
+export async function createWebhookPostingClient(botToken: string): Promise<DiscordClient> {
+  const { Client, GatewayIntentBits } = await import("discord.js");
+
+  const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+  await client.login(botToken);
+
+  // channelId → the bot's webhook on that channel (lazily resolved + cached).
+  const webhooks = new Map<string, { send: (opts: unknown) => Promise<unknown> }>();
+
+  async function webhookFor(channelId: string): Promise<{ send: (opts: unknown) => Promise<unknown> }> {
+    const cached = webhooks.get(channelId);
+    if (cached) return cached;
+
+    const channel = await client.channels.fetch(channelId);
+    if (channel === null || !("fetchWebhooks" in channel) || !("createWebhook" in channel)) {
+      throw new Error(`channel ${channelId} cannot host a webhook for persona posts`);
+    }
+    const existing = await channel.fetchWebhooks();
+    const own = existing.find((w) => w.owner?.id === client.user?.id);
+    const webhook = own ?? (await channel.createWebhook({ name: "Homunculus 分身" }));
+    const wrapped = webhook as unknown as { send: (opts: unknown) => Promise<unknown> };
+    webhooks.set(channelId, wrapped);
+    return wrapped;
+  }
+
+  return {
+    async sendWebhookMessage(channelId: string, message: SentMessage): Promise<void> {
+      const webhook = await webhookFor(channelId);
+      const opts: { content: string; username: string; avatarURL?: string } = {
+        content: message.content,
+        username: message.username,
+      };
+      if (message.avatarURL !== undefined) opts.avatarURL = message.avatarURL;
+      await webhook.send(opts);
+    },
+
+    async fetchMessages(): Promise<InboundMessage[]> {
+      // Inbound is driven by the gateway push (the dispatcher → PushInbox), not
+      // by REST polling, in the ADR-0011 model.
+      return [];
+    },
+  };
+}

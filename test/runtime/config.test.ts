@@ -1,40 +1,35 @@
 import { describe, expect, test } from "vitest";
-import { buildSessionConfig } from "../../src/runtime/config.js";
+import { buildRuntimeConfig } from "../../src/runtime/config.js";
 
 const fullEnv = {
   DISCORD_BOT_TOKEN: "bot-tok",
-  DISCORD_WEBHOOK_URL: "https://discord.com/api/webhooks/1/abc",
-  DISCORD_SCENE_THREAD_ID: "thread-123",
-  DISCORD_PLAYER_USER_ID: "user-456",
+  DISCORD_GUILD_ID: "guild-123",
 };
 
-describe("#4/#20 buildSessionConfig — assemble the first-session config from env", () => {
+describe("#28 buildRuntimeConfig — read process secrets, no hardcoded session debt", () => {
   test("throws a clear error when a required Discord var is missing", () => {
     for (const key of Object.keys(fullEnv)) {
       const partial = { ...fullEnv };
       delete (partial as Record<string, string>)[key];
-      expect(() => buildSessionConfig(partial)).toThrow(new RegExp(key));
+      expect(() => buildRuntimeConfig(partial)).toThrow(new RegExp(key));
     }
   });
 
-  test("maps the scene to the thread and routes the human by discord user id", () => {
-    const cfg = buildSessionConfig(fullEnv);
-
-    expect(cfg.threadMap[cfg.sceneId]).toBe("thread-123");
-
-    // The human player's persona carries the discord user id (for the inbox);
-    // DM + NPC personas do not (they only send, never receive).
-    const human = cfg.personas.find((p) => p.actorId === cfg.humanActorId)!;
-    expect(human.discordUserId).toBe("user-456");
-    const dm = cfg.personas.find((p) => p.actorId === cfg.aidmId)!;
-    expect(dm.discordUserId).toBeUndefined();
+  test("carries the bot token + guild id and applies lobby/archetype defaults", () => {
+    const cfg = buildRuntimeConfig(fullEnv);
+    expect(cfg.botToken).toBe("bot-tok");
+    expect(cfg.guildId).toBe("guild-123");
+    expect(cfg.lobbyCampaign).toBe("lobby");
+    expect(cfg.defaultArchetype.length).toBeGreaterThan(0);
   });
 
-  test("carries the opening brief and the NPC persona for the drivers", () => {
-    const cfg = buildSessionConfig(fullEnv);
-    expect(cfg.brief.length).toBeGreaterThan(0);
-    expect(cfg.npc.persona.length).toBeGreaterThan(0);
-    expect(cfg.discord.botToken).toBe("bot-tok");
-    expect(cfg.discord.webhookUrl).toBe("https://discord.com/api/webhooks/1/abc");
+  test("lets the lobby campaign + default archetype be overridden by env", () => {
+    const cfg = buildRuntimeConfig({
+      ...fullEnv,
+      HOMUNCULUS_LOBBY_CAMPAIGN: "front-desk",
+      HOMUNCULUS_DEFAULT_ARCHETYPE: "法师",
+    });
+    expect(cfg.lobbyCampaign).toBe("front-desk");
+    expect(cfg.defaultArchetype).toBe("法师");
   });
 });

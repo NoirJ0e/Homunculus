@@ -54,8 +54,15 @@ export type QueryRunner = (ctx: QueryRunnerContext) => QueryHandle;
 
 export interface DispatcherDeps {
   readonly eventSource: DispatcherEventSource;
-  /** Resolve a channel's routing pointer (topic / thread name). null = unknown. */
-  readonly resolveRouting: (channelId: string) => ChannelRouting | null;
+  /**
+   * Resolve a channel's routing pointer (topic / thread name). null = unknown.
+   * May be sync (tests, a pure resolver) or async (a live discord.js topic
+   * fetch); the dispatcher awaits either, buffering same-channel messages that
+   * race in during resolution so the query is spun up exactly once.
+   */
+  readonly resolveRouting: (
+    channelId: string,
+  ) => ChannelRouting | null | Promise<ChannelRouting | null>;
   readonly runConciergeQuery: QueryRunner;
   readonly runAidmQuery: QueryRunner;
   readonly runCardCreationQuery: QueryRunner;
@@ -66,6 +73,9 @@ export interface DispatcherDeps {
 export class Dispatcher {
   private readonly deps: DispatcherDeps;
   private readonly active = new Map<string, QueryHandle>();
+  /** Channels whose routing is being resolved; later same-channel messages
+   *  buffer here so the query spins up exactly once (async-resolveRouting race). */
+  private readonly resolving = new Map<string, GatewayMessage[]>();
 
   constructor(deps: DispatcherDeps) {
     this.deps = deps;
@@ -97,16 +107,42 @@ export class Dispatcher {
       return;
     }
 
-    const routing = this.deps.resolveRouting(channelId);
+    // A resolution is already in flight for this channel — buffer until it lands
+    // (so we never spin up a second query for the same channel).
+    const inFlight = this.resolving.get(channelId);
+    if (inFlight) {
+      inFlight.push(message);
+      return;
+    }
+
+    const resolved = this.deps.resolveRouting(channelId);
+    if (resolved instanceof Promise) {
+      this.resolving.set(channelId, []);
+      void resolved.then(
+        (routing) => this.completeSpinUp(channelId, message, routing),
+        () => this.resolving.delete(channelId),
+      );
+      return;
+    }
+    this.completeSpinUp(channelId, message, resolved);
+  }
+
+  /** Finish a (possibly async) routing resolution: spin up once, then flush any
+   *  messages that raced in while resolving to the new handle's slot. */
+  private completeSpinUp(
+    channelId: string,
+    firstMessage: GatewayMessage,
+    routing: ChannelRouting | null,
+  ): void {
+    const buffered = this.resolving.get(channelId) ?? [];
+    this.resolving.delete(channelId);
+
     // Unknown / no-routing channel → spin up NOTHING (safe default).
     if (routing === null) return;
 
-    const handle = this.runnerFor(routing.role)({
-      channelId,
-      routing,
-      firstMessage: message,
-    });
+    const handle = this.runnerFor(routing.role)({ channelId, routing, firstMessage });
     this.active.set(channelId, handle);
+    for (const m of buffered) handle.deliver(m);
   }
 
   private handleArchive(channelId: string): void {
