@@ -89,4 +89,35 @@ describe("setRoster handler", () => {
 
     expect(h.meta.get(campaignId("mine-01"))?.ownerId).toBe("owner-1");
   });
+
+  test("bootstrap: first caller of an unclaimed campaign becomes owner", async () => {
+    const h = makeHandler();
+    await h.handler(event({ invokerId: "first-mover" }));
+
+    expect(h.meta.get(campaignId("mine-01"))?.ownerId).toBe("first-mover");
+    expect(h.roster.get(campaignId("mine-01"))).toHaveLength(2);
+    expect(h.replies[0]).toContain("owner");
+  });
+
+  test("once claimed, a non-owner cannot change the roster (denied, unchanged)", async () => {
+    const h = makeHandler();
+    await h.handler(event({ invokerId: "owner-1", options: { players: "user-alice" } }));
+    const after1 = h.roster.get(campaignId("mine-01"));
+
+    await h.handler(event({ invokerId: "intruder", options: { players: "user-evil" } }));
+
+    // Owner unchanged; roster unchanged; intruder told off.
+    expect(h.meta.get(campaignId("mine-01"))?.ownerId).toBe("owner-1");
+    expect(h.roster.get(campaignId("mine-01"))).toEqual(after1);
+    expect(h.replies.at(-1)).toContain("owner");
+  });
+
+  test("the owner may change the roster again after claiming", async () => {
+    const h = makeHandler();
+    await h.handler(event({ invokerId: "owner-1", options: { players: "user-alice" } }));
+    await h.handler(event({ invokerId: "owner-1", options: { players: "user-alice user-bob" } }));
+
+    expect(h.roster.get(campaignId("mine-01"))).toHaveLength(2);
+    expect(h.meta.get(campaignId("mine-01"))?.ownerId).toBe("owner-1");
+  });
 });

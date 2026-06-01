@@ -70,6 +70,7 @@ export async function createCommandSource(botToken: string): Promise<CommandEven
       reply: (options: unknown) => Promise<unknown>;
     };
     if (!chat.isChatInputCommand()) return;
+    console.log(`[cmd-source] interaction "${chat.commandName}" from ${chat.user.id} (acking + dispatching)`);
     // ACK inside Discord's 3-second window, else the client shows "The
     // application did not respond". The command's real output is posted to the
     // channel/thread via webhook by the handlers, so an ephemeral receipt is

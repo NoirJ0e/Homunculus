@@ -91,14 +91,18 @@ function makeRouter() {
 }
 
 describe("#33 open-gate end-to-end (router + real authority)", () => {
-  test("non-owner /set-roster is denied and writes no roster", async () => {
-    const h = makeRouter();
+  test("once an owner is claimed, a non-owner /set-roster writes no roster (handler self-guards)", async () => {
+    const h = makeRouter(); // seeds ownerId = "owner-1"
     const result = await h.router.dispatch(
       event({ name: "set-roster", invokerId: "imposter", options: { players: "user-a user-b" } }),
     );
 
-    expect(result).toEqual({ kind: "denied", name: "set-roster", scope: "owner" });
+    // set-roster is scope "any" (bootstrap), so the router dispatches it; the
+    // handler then self-guards — owner already claimed and ≠ invoker → no roster
+    // written, imposter told off. Same security invariant, enforced one layer in.
+    expect(result.kind).toBe("dispatched");
     expect(h.rosterStore.get(campaignId("mine-01"))).toBeUndefined();
+    expect(h.replies.at(-1)).toContain("owner");
   });
 
   test("non-owner /start-game is denied and spawns nothing", async () => {

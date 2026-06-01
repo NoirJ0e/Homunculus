@@ -33,7 +33,7 @@ export const COMMAND_DESCRIPTIONS: Readonly<Record<string, string>> = {
   "verify-card": "Submit your character card for review (or resubmit after edits).",
   "start-game": "Owner only: start the game once every roster card is verified.",
   "approve": "Owner only: approve a verifier exception for the campaign.",
-  "set-roster": "Owner only: declare the campaign roster (who may create cards).",
+  "set-roster": "Declare the campaign roster (first caller becomes owner; @ yourself to play too).",
   "add-ai-seat": "Owner only: add an AI teammate seat (auto-generated, then reviewed like any card).",
 };
 
@@ -48,7 +48,11 @@ export function createCommandSet(handlers: CommandSetHandlers): CommandRegistrat
     { name: "verify-card", scope: "player", handler: handlers.verifyCard },
     { name: "start-game", scope: "owner", handler: handlers.startGame },
     { name: "approve", scope: "owner", handler: handlers.approve },
-    { name: "set-roster", scope: "owner", handler: handlers.setRoster },
+    // "any" (not "owner") so it can BOOTSTRAP ownership: owner-scoped commands
+    // need a stored owner, but the owner is only recorded BY set-roster — a
+    // deadlock if it were owner-gated. The handler self-guards: first caller
+    // claims the campaign owner; afterward only that owner may change the roster.
+    { name: "set-roster", scope: "any", handler: handlers.setRoster },
     { name: "add-ai-seat", scope: "owner", handler: handlers.addAiSeat },
   ];
 }

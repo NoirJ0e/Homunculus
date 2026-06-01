@@ -46,8 +46,18 @@ function parsePlayers(raw: string | undefined): string[] {
 export function createSetRosterHandler(deps: SetRosterDeps): CommandHandler {
   return async (event: CommandEvent): Promise<void> => {
     const campaign = deps.resolveCampaign(event);
-    const players = parsePlayers(event.options["players"]);
 
+    // BOOTSTRAP ownership (set-roster is scope "any", see command-set.ts): the
+    // first caller of an unclaimed campaign becomes its owner; afterward only
+    // that owner may change the roster. This is the entry that breaks the
+    // owner-scope deadlock (every other owner command needs a stored owner).
+    const meta = deps.metaStore.get(campaign);
+    if (meta !== undefined && meta.ownerId !== event.invokerId) {
+      await deps.reply("只有本团的 owner 能修改名单。");
+      return;
+    }
+
+    const players = parsePlayers(event.options["players"]);
     const entries: RosterEntry[] = players.map((discordUserId) => ({
       actorId: deps.resolveActor(discordUserId),
       discordUserId,
@@ -56,10 +66,13 @@ export function createSetRosterHandler(deps: SetRosterDeps): CommandHandler {
     }));
 
     deps.rosterStore.set(campaign, entries);
-    deps.metaStore.set(campaign, { ownerId: event.invokerId });
+    const claimed = meta === undefined;
+    if (claimed) deps.metaStore.set(campaign, { ownerId: event.invokerId });
 
     await deps.reply(
-      `名单已登记：${players.length} 名玩家（待开卡过审）。全员过审后用 \`/start-game\` 开场。`,
+      `名单已登记：${players.length} 名玩家（待开卡过审）。` +
+        `${claimed ? "你已成为本团 owner。" : ""}` +
+        "全员过审后用 `/start-game` 开场。",
     );
   };
 }

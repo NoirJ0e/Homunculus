@@ -268,13 +268,42 @@ if (appId === undefined || appId === "") {
 // the channel's campaign so the sync authority/handlers see it, then dispatch.
 const commandSource = await createCommandSource(cfg.botToken);
 commandSource.onCommand((event) => {
+  console.log(
+    `[cmd] recv "${event.name}" invoker=${event.invokerId} channel=${event.channelId}` +
+      `${event.threadId ? ` thread=${event.threadId}` : ""} opts=${JSON.stringify(event.options)}`,
+  );
   replyChannel = event.channelId;
   void resolveRouting(event.channelId)
-    .then((routing) => {
-      if (routing !== null) channelCampaign.set(event.channelId, campaignId(routing.campaign));
-      return commandRouter.dispatch(event);
+    .then(async (routing) => {
+      if (routing !== null) {
+        channelCampaign.set(event.channelId, campaignId(routing.campaign));
+        console.log(`[cmd] "${event.name}" routing: campaign=${routing.campaign} role=${routing.role}`);
+      } else {
+        console.log(`[cmd] "${event.name}" routing: none for channel ${event.channelId}`);
+      }
+      const result = await commandRouter.dispatch(event);
+      switch (result.kind) {
+        case "dispatched":
+          console.log(`[cmd] "${event.name}" dispatched OK`);
+          break;
+        case "denied":
+          console.warn(`[cmd] "${event.name}" DENIED (scope=${result.scope}, invoker=${event.invokerId})`);
+          await reply(
+            result.scope === "owner"
+              ? `「/${event.name}」只有 owner 能用。`
+              : `「/${event.name}」需要你在名单里——请让 owner 先用 /set-roster 把你加进来（owner 可 @ 自己）。`,
+          ).catch(() => {});
+          break;
+        case "unknown-command":
+          console.warn(`[cmd] "${event.name}" UNKNOWN command`);
+          await reply(`未知命令「/${event.name}」。`).catch(() => {});
+          break;
+      }
     })
-    .catch((e) => console.error(`[command-error] ${event.name}`, e));
+    .catch(async (e) => {
+      console.error(`[command-error] ${event.name}`, e);
+      await reply(`「/${event.name}」处理出错：${e instanceof Error ? e.message : String(e)}`).catch(() => {});
+    });
 });
 
 process.on("SIGINT", () => {

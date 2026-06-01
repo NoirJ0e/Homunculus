@@ -27,7 +27,7 @@ describe("#31 createCommandSet — ADR-0012 initial command set + scopes", () =>
     expect(scopeByName.get("verify-card")).toBe("player");
     expect(scopeByName.get("start-game")).toBe("owner");
     expect(scopeByName.get("approve")).toBe("owner");
-    expect(scopeByName.get("set-roster")).toBe("owner");
+    expect(scopeByName.get("set-roster")).toBe("any"); // bootstrap: first caller claims owner (handler self-guards)
     expect(scopeByName.get("add-ai-seat")).toBe("owner");
     expect(set).toHaveLength(6);
   });
