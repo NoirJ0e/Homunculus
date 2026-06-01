@@ -175,6 +175,11 @@ export class DiscordInbox implements HumanInboxPort {
     // Update last-seen cursor
     this.lastSeen.set(cursorKey, latest.messageId);
 
-    return mapContentToTurn(latest.content);
+    const mapped = mapContentToTurn(latest.content);
+    // OOC (ADR-0011 前缀表): not a turn. Skip it — the cursor has advanced past
+    // it, so it is never re-fetched and never reaches the DM. This poll yields
+    // no in-character turn (treated like silence for this beat).
+    if (mapped.kind === "ooc") return undefined;
+    return mapped;
   }
 }

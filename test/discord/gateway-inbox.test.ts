@@ -85,6 +85,44 @@ describe("#20/#4 GatewayInbox — blocking human-await over pushed events", () =
     expect(await passP).toEqual({ kind: "pass" });
   });
 
+  test("OOC messages (leading paren) do not resolve poll; it keeps waiting for the next in-character message", async () => {
+    const source = new FakeEventSource();
+    const inbox = new GatewayInbox(source, personas, threadMap);
+
+    const pending = inbox.poll(human, scene);
+    let resolved = false;
+    void pending.then(() => {
+      resolved = true;
+    });
+
+    // OOC chatter arrives — must be skipped: not resolved, not fed to the DM.
+    source.emit(msg({ content: "(brb 接个电话)" }));
+    source.emit(msg({ content: "（继续）" }));
+    await Promise.resolve();
+    expect(resolved).toBe(false); // still holding for a real in-character turn
+
+    // A genuine in-character message finally arrives → it resolves the await.
+    source.emit(msg({ content: "我推开门。" }));
+    expect(await pending).toEqual({ kind: "prose", prose: "我推开门。" });
+  });
+
+  test("an OOC message arriving before poll is not buffered as a turn", async () => {
+    const source = new FakeEventSource();
+    const inbox = new GatewayInbox(source, personas, threadMap);
+
+    source.emit(msg({ content: "(先吃个饭)" })); // OOC before anyone polls
+    const pending = inbox.poll(human, scene);
+    let resolved = false;
+    void pending.then(() => {
+      resolved = true;
+    });
+    await Promise.resolve();
+    expect(resolved).toBe(false); // OOC was not buffered as a turn
+
+    source.emit(msg({ content: "我回来了，行动。" }));
+    expect(await pending).toEqual({ kind: "prose", prose: "我回来了，行动。" });
+  });
+
   test("a message arriving before poll is buffered and returned by the next poll", async () => {
     const source = new FakeEventSource();
     const inbox = new GatewayInbox(source, personas, threadMap);
