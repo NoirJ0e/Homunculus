@@ -94,7 +94,7 @@ describe("#33 open-gate end-to-end (router + real authority)", () => {
   test("once an owner is claimed, a non-owner /set-roster writes no roster (handler self-guards)", async () => {
     const h = makeRouter(); // seeds ownerId = "owner-1"
     const result = await h.router.dispatch(
-      event({ name: "set-roster", invokerId: "imposter", options: { players: "user-a user-b" } }),
+      event({ name: "set-roster", invokerId: "imposter", options: { player1: "user-a", player2: "user-b" } }),
     );
 
     // set-roster is scope "any" (bootstrap), so the router dispatches it; the
@@ -121,7 +121,7 @@ describe("#33 open-gate end-to-end (router + real authority)", () => {
     const h = makeRouter();
 
     await h.router.dispatch(
-      event({ name: "set-roster", invokerId: "owner-1", options: { players: "user-a user-b" } }),
+      event({ name: "set-roster", invokerId: "owner-1", options: { player1: "user-a", player2: "user-b" } }),
     );
     const declared = h.rosterStore.get(campaignId("mine-01"));
     expect(declared).toHaveLength(2);

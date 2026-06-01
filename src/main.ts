@@ -43,7 +43,7 @@ import {
   describeCommands,
 } from "./adapters/discord/command-interaction.js";
 import { createCommandRouter, type CommandEvent } from "./adapters/discord/command-router.js";
-import { createCommandSet, COMMAND_DESCRIPTIONS } from "./adapters/discord/command-set.js";
+import { createCommandSet, COMMAND_DESCRIPTIONS, COMMAND_OPTIONS } from "./adapters/discord/command-set.js";
 import { createCampaignAuthority } from "./adapters/discord/campaign-authority.js";
 import { createSetRosterHandler } from "./adapters/discord/set-roster-handler.js";
 import { createStartGameHandler } from "./adapters/discord/start-game-handler.js";
@@ -259,7 +259,7 @@ if (appId === undefined || appId === "") {
     cfg.botToken,
     appId,
     cfg.guildId,
-    describeCommands(commandSet, COMMAND_DESCRIPTIONS),
+    describeCommands(commandSet, COMMAND_DESCRIPTIONS, COMMAND_OPTIONS),
   );
   console.log(`[commands] registered ${commandSet.length} guild slash commands.`);
 }

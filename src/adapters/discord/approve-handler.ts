@@ -16,8 +16,9 @@ import type { ExceptionStore } from "../../ports/exception-store.js";
  * here. The verifier never trusts "我跟 DM 商量过" prose — authority only flows
  * through this owner-only command.
  *
- * Command options (from #31's `CommandEvent.options`):
- *   - `项`    : the item being sanctioned (required).
+ * Command options (from #31's `CommandEvent.options`; ASCII names — Discord
+ * rejects non-ASCII option names):
+ *   - `item` : the item being sanctioned (required).
  *   - `note` : optional owner note recorded with the approval.
  */
 
@@ -29,7 +30,7 @@ export interface ApproveDeps {
 
 export function createApproveHandler(deps: ApproveDeps): CommandHandler {
   return async (event: CommandEvent): Promise<void> => {
-    const item = event.options["项"];
+    const item = event.options["item"];
     if (item === undefined || item === "") {
       // No item to sanction — nothing to record.
       return;

@@ -38,6 +38,45 @@ export const COMMAND_DESCRIPTIONS: Readonly<Record<string, string>> = {
 };
 
 /**
+ * A slash-command option declaration (the slice of Discord's application-command
+ * option object we register). `type` is Discord's ApplicationCommandOptionType:
+ * 3 = STRING, 6 = USER (gives the native @-member picker + autocomplete).
+ * Option NAMES must be lowercase ASCII (`[a-z0-9_-]`, 1–32) — Discord rejects
+ * others — and REQUIRED options must be declared before optional ones.
+ */
+export interface CommandOption {
+  readonly type: 3 | 6;
+  readonly name: string;
+  readonly description: string;
+  readonly required?: boolean;
+}
+
+/**
+ * Per-command option schemas registered with Discord. Without these the slash
+ * commands take no arguments — e.g. `/set-roster` showed no `@player` picker.
+ * USER options give the native member autocomplete; the handlers read the option
+ * values out of {@link CommandEvent.options} by these (ASCII) names.
+ */
+export const COMMAND_OPTIONS: Readonly<Record<string, readonly CommandOption[]>> = {
+  // Up to 5 players via the native @-picker (player1 required, rest optional).
+  "set-roster": [
+    { type: 6, name: "player1", description: "玩家 1（@ 选择；要自己下场就 @ 自己）", required: true },
+    { type: 6, name: "player2", description: "玩家 2（可选）" },
+    { type: 6, name: "player3", description: "玩家 3（可选）" },
+    { type: 6, name: "player4", description: "玩家 4（可选）" },
+    { type: 6, name: "player5", description: "玩家 5（可选）" },
+  ],
+  approve: [
+    { type: 3, name: "item", description: "要批准放行的物品/设定", required: true },
+    { type: 3, name: "note", description: "备注（可选）" },
+  ],
+  "add-ai-seat": [
+    { type: 3, name: "archetype", description: "AI 队友职业原型，如 战士 / 游侠（可选）" },
+    { type: 3, name: "name", description: "AI 队友名字（可选）" },
+  ],
+};
+
+/**
  * Build the router-ready command set from the injected handlers. Names and
  * scopes are fixed by ADR-0012; handlers are supplied by the caller (stubs in
  * #31, real ones in #33–#37).

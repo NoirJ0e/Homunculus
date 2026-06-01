@@ -46,7 +46,7 @@ const event = (over: Partial<CommandEvent> = {}): CommandEvent => ({
   name: "set-roster",
   invokerId: "owner-1",
   channelId: "chan-main",
-  options: { players: "user-alice user-bob" },
+  options: { player1: "user-alice", player2: "user-bob" },
   ...over,
 });
 
@@ -101,10 +101,10 @@ describe("setRoster handler", () => {
 
   test("once claimed, a non-owner cannot change the roster (denied, unchanged)", async () => {
     const h = makeHandler();
-    await h.handler(event({ invokerId: "owner-1", options: { players: "user-alice" } }));
+    await h.handler(event({ invokerId: "owner-1", options: { player1: "user-alice" } }));
     const after1 = h.roster.get(campaignId("mine-01"));
 
-    await h.handler(event({ invokerId: "intruder", options: { players: "user-evil" } }));
+    await h.handler(event({ invokerId: "intruder", options: { player1: "user-evil" } }));
 
     // Owner unchanged; roster unchanged; intruder told off.
     expect(h.meta.get(campaignId("mine-01"))?.ownerId).toBe("owner-1");
@@ -114,8 +114,8 @@ describe("setRoster handler", () => {
 
   test("the owner may change the roster again after claiming", async () => {
     const h = makeHandler();
-    await h.handler(event({ invokerId: "owner-1", options: { players: "user-alice" } }));
-    await h.handler(event({ invokerId: "owner-1", options: { players: "user-alice user-bob" } }));
+    await h.handler(event({ invokerId: "owner-1", options: { player1: "user-alice" } }));
+    await h.handler(event({ invokerId: "owner-1", options: { player1: "user-alice", player2: "user-bob" } }));
 
     expect(h.roster.get(campaignId("mine-01"))).toHaveLength(2);
     expect(h.meta.get(campaignId("mine-01"))?.ownerId).toBe("owner-1");

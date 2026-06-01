@@ -35,7 +35,7 @@ const event = (over: Partial<CommandEvent> = {}): CommandEvent => ({
   name: "approve",
   invokerId: "user-owner",
   channelId: "chan-x",
-  options: { 项: "现代手枪", note: "时代错置但 owner 允许" },
+  options: { item: "现代手枪", note: "时代错置但 owner 允许" },
   ...over,
 });
 

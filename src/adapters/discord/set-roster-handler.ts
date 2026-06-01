@@ -31,16 +31,20 @@ export interface SetRosterDeps {
 }
 
 /**
- * Parse the `players` option into Discord user snowflakes. The live interaction
- * supplies @-mentions; we accept a whitespace/comma-separated list (raw ids or
- * `<@id>` mention tokens), tolerant of either form.
+ * Collect player snowflakes from the `player1`..`player5` USER options (the
+ * native @-member picker — see command-set.ts COMMAND_OPTIONS). A USER option's
+ * value is already a bare snowflake; we still strip a `<@id>` wrapper defensively
+ * and de-duplicate. Order is player1→player5; absent options are skipped.
  */
-function parsePlayers(raw: string | undefined): string[] {
-  if (raw === undefined) return [];
-  return raw
-    .split(/[\s,]+/)
-    .map((tok) => tok.replace(/^<@!?/, "").replace(/>$/, "").trim())
-    .filter((tok) => tok.length > 0);
+function parsePlayers(options: Record<string, string>): string[] {
+  const ids: string[] = [];
+  for (let i = 1; i <= 5; i++) {
+    const raw = options[`player${i}`];
+    if (raw === undefined) continue;
+    const id = raw.replace(/^<@!?/, "").replace(/>$/, "").trim();
+    if (id.length > 0 && !ids.includes(id)) ids.push(id);
+  }
+  return ids;
 }
 
 export function createSetRosterHandler(deps: SetRosterDeps): CommandHandler {
@@ -57,7 +61,7 @@ export function createSetRosterHandler(deps: SetRosterDeps): CommandHandler {
       return;
     }
 
-    const players = parsePlayers(event.options["players"]);
+    const players = parsePlayers(event.options);
     const entries: RosterEntry[] = players.map((discordUserId) => ({
       actorId: deps.resolveActor(discordUserId),
       discordUserId,

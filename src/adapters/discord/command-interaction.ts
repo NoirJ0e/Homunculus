@@ -1,4 +1,5 @@
 import type { CommandEvent, CommandRegistration, CommandScope } from "./command-router.js";
+import type { CommandOption } from "./command-set.js";
 
 /**
  * command-interaction.ts — the live discord.js wiring for slash commands
@@ -88,11 +89,13 @@ export async function createCommandSource(botToken: string): Promise<CommandEven
   return { onCommand: (handler) => handlers.push(handler) };
 }
 
-/** A command's public descriptor (name + description) for guild registration. */
+/** A command's public descriptor (name + description + options) for guild registration. */
 export interface CommandDescriptor {
   readonly name: string;
   readonly description: string;
   readonly scope: CommandScope;
+  /** Declared options (USER picker, string args…). Empty/omitted = no options. */
+  readonly options?: readonly CommandOption[];
 }
 
 /**
@@ -109,7 +112,11 @@ export async function registerGuildCommands(
 ): Promise<void> {
   const { REST, Routes } = await import("discord.js");
 
-  const body = descriptors.map((d) => ({ name: d.name, description: d.description }));
+  const body = descriptors.map((d) => ({
+    name: d.name,
+    description: d.description,
+    ...(d.options && d.options.length > 0 ? { options: d.options } : {}),
+  }));
   const rest = new REST({ version: "10" }).setToken(botToken);
   await rest.put(Routes.applicationGuildCommands(appId, guildId), { body });
 }
@@ -122,10 +129,15 @@ export async function registerGuildCommands(
 export function describeCommands(
   registrations: readonly CommandRegistration[],
   descriptions: Readonly<Record<string, string>>,
+  options: Readonly<Record<string, readonly CommandOption[]>> = {},
 ): CommandDescriptor[] {
-  return registrations.map((reg) => ({
-    name: reg.name,
-    description: descriptions[reg.name] ?? reg.name,
-    scope: reg.scope,
-  }));
+  return registrations.map((reg) => {
+    const opts = options[reg.name];
+    return {
+      name: reg.name,
+      description: descriptions[reg.name] ?? reg.name,
+      scope: reg.scope,
+      ...(opts && opts.length > 0 ? { options: opts } : {}),
+    };
+  });
 }
