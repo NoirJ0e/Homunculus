@@ -102,6 +102,25 @@ export class Dispatcher {
     this.deps.eventSource.onThreadArchived((id) => this.handleArchive(id));
   }
 
+  /**
+   * #33 OPEN GATE — explicitly start the AIDM for a channel. The `role=aidm`
+   * channel no longer auto-starts on a plain message (the original ADR-0012
+   * pain); the owner's `/开场` (start-game) handler is the ONLY trigger, and it
+   * calls this after its all-approved roster guard passes. Idempotent: if a
+   * query is already live for the channel this is a no-op (no double spin-up).
+   */
+  startAidm(channelId: string, routing: ChannelRouting): void {
+    if (this.active.has(channelId)) return;
+    const firstMessage: GatewayMessage = {
+      threadId: channelId,
+      userId: "system",
+      content: "",
+      messageId: "start-game",
+    };
+    const handle = this.deps.runAidmQuery({ channelId, routing, firstMessage });
+    this.active.set(channelId, handle);
+  }
+
   private runnerFor(role: ChannelRole): QueryRunner {
     switch (role) {
       case "concierge":
@@ -163,6 +182,12 @@ export class Dispatcher {
 
     // Unknown / no-routing channel → spin up NOTHING (safe default).
     if (routing === null) return;
+
+    // #33 OPEN GATE: a role=aidm channel does NOT auto-start on a plain message
+    // (the original ADR-0012 pain). The AIDM is started ONLY by the owner's
+    // `/开场` (start-game) handler via `startAidm`. Drop the trigger message;
+    // once started, the existing active-handle deliver path takes over.
+    if (routing.role === "aidm") return;
 
     const handle = this.runnerFor(routing.role)({ channelId, routing, firstMessage });
     this.active.set(channelId, handle);
