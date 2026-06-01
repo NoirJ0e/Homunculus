@@ -4,7 +4,7 @@ import {
   createDiscordAdminMcpServer,
 } from "../../src/adapters/agent-sdk/discord-admin-mcp.js";
 import type { DiscordAdminPort } from "../../src/ports/discord-admin.js";
-import { encodeTopic, parseTopic } from "../../src/adapters/discord/channel-routing.js";
+import { parseTopic } from "../../src/adapters/discord/channel-routing.js";
 
 /**
  * #26 — the concierge's Discord-admin MCP surface. Tests inject a STUB
@@ -77,9 +77,13 @@ describe("discord-admin MCP", () => {
       channelId,
       name: "AIDM",
     });
+    // Pass STRUCTURED fields — the tool itself must encode the topic. (Regression
+    // for the live spike bug: the LLM hand-wrote `role=aidm;campaign=…` with no
+    // `homunculus:` prefix, so parseTopic returned null. The tool now owns encoding.)
     await callTool(port, "set_channel_topic", {
       channelId,
-      topic: encodeTopic({ campaign, role: "aidm" }),
+      campaign,
+      role: "aidm",
     });
 
     // Order: category → main text channel → webhook (→ topic).

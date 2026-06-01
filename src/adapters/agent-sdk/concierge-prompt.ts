@@ -30,7 +30,7 @@ export function buildConciergePrompt(): string {
     "1. `create_category`：以团名建一个 Category（= 这场团的文件夹），拿到 categoryId。",
     "2. `create_text_channel`：在该 category 下建「主线」文字频道（= AIDM 的场景频道），拿到 channelId。",
     "3. `create_webhook`：在主线频道上建一个 webhook（之后 AIDM/角色分身借它发言），拿到 webhook URL。",
-    "4. `set_channel_topic`：把【路由指针】写进主线频道的 topic——用路由编解码器生成的字符串（`role=aidm` + 这场团的 campaign id），不要手拼 topic 文本。dispatcher 之后靠读这条 topic 认出这是 AIDM 频道。",
+    "4. `set_channel_topic`：把【路由指针】写进主线频道的 topic。你只传结构化字段：channelId、role=aidm、campaign（用第 1 步 create_category 返回的 category id 作为这场团的稳定标识）。topic 文本由工具内部确定性生成，你【绝不要】自己拼 `role=...` 这类字符串。dispatcher 之后靠读这条 topic 认出这是 AIDM 频道。",
     "",
     "## 第三步：交接，仅此而已",
     "骨架建好后，在主线频道发一条【系统提示性质】的 OOC 消息（如「团建好了，准备好就在这开口，AIDM 会接场」）。这只是告知，不是开场叙事。然后你的活就干完了——是否开场由真人决定，AIDM 由 dispatcher 按需拉起。",

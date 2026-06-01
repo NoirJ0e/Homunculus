@@ -6,6 +6,7 @@ import {
   type SdkMcpToolDefinition,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { DiscordAdminPort } from "../../ports/discord-admin.js";
+import { encodeTopic } from "../discord/channel-routing.js";
 
 /**
  * Discord-admin MCP adapter (ADR-0011). Wraps an injected {@link DiscordAdminPort}
@@ -57,11 +58,21 @@ export function adminTools(admin: DiscordAdminPort): SdkMcpToolDefinition<any>[]
     ),
     tool(
       "set_channel_topic",
-      "把路由指针写进频道 topic（dispatcher 据此判频道 role）。topic 字符串必须由路由编解码器（encodeTopic）生成，不要手拼。",
-      { channelId: z.string(), topic: z.string() },
+      "把路由指针写进频道 topic（dispatcher 据此判频道 role）。你只给结构化字段——campaign（用 create_category 返回的 id 作稳定标识）、role、可选 scene——topic 字符串由路由编解码器确定性生成，你【不要】自己拼 topic 文本（否则会漏掉命名空间前缀，dispatcher 读不出来）。",
+      {
+        channelId: z.string(),
+        campaign: z.string(),
+        role: z.enum(["aidm", "concierge", "cardcreation"]),
+        scene: z.string().optional(),
+      },
       async (args) => {
-        await admin.setChannelTopic(args.channelId, args.topic);
-        return { content: [{ type: "text", text: `topic set on ${args.channelId}` }] };
+        const topic = encodeTopic(
+          args.scene !== undefined
+            ? { campaign: args.campaign, role: args.role, scene: args.scene }
+            : { campaign: args.campaign, role: args.role },
+        );
+        await admin.setChannelTopic(args.channelId, topic);
+        return { content: [{ type: "text", text: `topic set on ${args.channelId}: ${topic}` }] };
       },
     ),
   ];
