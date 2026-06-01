@@ -58,25 +58,42 @@ export interface Runners {
   readonly deleteSession: (channelId: string) => void;
 }
 
+/**
+ * Drain a streaming conversational query, posting each assistant TEXT block back
+ * into the Discord channel as `username` (via the shared webhook client). Without
+ * this the concierge / card-creation agents run INVISIBLY — they drive their own
+ * tools fine, but the human sees no reply (the "[ready] 但完全没反应" bug). Tool-use
+ * blocks execute silently; only text is posted. Exported + parameterized so it is
+ * unit-tested headless (the runners that call it are the live glue).
+ */
+export async function postAssistantText(
+  client: DiscordClient,
+  channelId: string,
+  username: string,
+  stream: AsyncIterable<unknown>,
+): Promise<void> {
+  for await (const msg of stream as AsyncIterable<{
+    type: string;
+    message?: { content?: Array<{ type: string; text?: string }> };
+  }>) {
+    if (msg.type !== "assistant") continue;
+    for (const block of msg.message?.content ?? []) {
+      if (block.type === "text" && block.text && block.text.trim().length > 0) {
+        await client.sendWebhookMessage(channelId, {
+          content: block.text.slice(0, 2000),
+          username,
+        });
+      }
+    }
+  }
+}
+
 export function makeRunners(deps: RunnerDeps): Runners {
   const archetype = deps.defaultArchetype ?? "战士";
   const onError = deps.onError ?? (() => {});
 
   // Per-channel teardown hooks the dispatcher's thread-archive handler invokes.
   const teardowns = new Map<string, () => void>();
-
-  /** Drain a streaming query in the background, surfacing errors via onError. */
-  const drain = (where: string, stream: AsyncIterable<unknown>): void => {
-    void (async () => {
-      try {
-        for await (const _ of stream) {
-          // The model drives its own tools; we don't inspect messages here.
-        }
-      } catch (error) {
-        onError(where, error);
-      }
-    })();
-  };
 
   /**
    * AIDM runner. Assembles a minimal v1 Referee for the channel's routing:
@@ -160,7 +177,9 @@ export function makeRunners(deps: RunnerDeps): Runners {
         permissionMode: "bypassPermissions",
       },
     });
-    drain(`concierge:${ctx.channelId}`, stream);
+    void postAssistantText(deps.discordClient, ctx.channelId, "门房", stream).catch((e) =>
+      onError(`concierge:${ctx.channelId}`, e),
+    );
 
     teardowns.set(ctx.channelId, () => channel.close());
 
@@ -188,7 +207,9 @@ export function makeRunners(deps: RunnerDeps): Runners {
         permissionMode: "bypassPermissions",
       },
     });
-    drain(`cardcreation:${ctx.channelId}`, stream);
+    void postAssistantText(deps.discordClient, ctx.channelId, "开卡向导", stream).catch((e) =>
+      onError(`cardcreation:${ctx.channelId}`, e),
+    );
 
     teardowns.set(ctx.channelId, () => channel.close());
 
