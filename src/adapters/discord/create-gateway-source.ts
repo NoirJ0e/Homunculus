@@ -104,8 +104,18 @@ export async function createDispatcherGatewaySource(
   await client.login(botToken);
 
   const resolveRouting = async (channelId: string): Promise<ChannelRouting | null> => {
-    const channel = await client.channels.fetch(channelId);
+    let channel = await client.channels.fetch(channelId);
     if (channel === null) return null;
+    // A THREAD carries no topic — it inherits its PARENT channel's routing (same
+    // campaign). Without this, a command run inside the open-card thread (e.g.
+    // /verify-card) resolves to the lobby campaign instead of the real one, so
+    // the roster/owner written against the parent's campaign isn't found
+    // ("状态不共享"). Resolve the parent and read ITS topic.
+    if ("isThread" in channel && (channel as { isThread: () => boolean }).isThread()) {
+      const parentId = (channel as { parentId?: string | null }).parentId ?? null;
+      channel = parentId === null ? null : await client.channels.fetch(parentId);
+      if (channel === null) return null;
+    }
     // Only text-channel-like surfaces carry a topic.
     const topic =
       "topic" in channel && typeof (channel as { topic?: unknown }).topic === "string"
