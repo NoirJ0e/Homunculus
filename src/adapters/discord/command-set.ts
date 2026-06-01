@@ -9,6 +9,7 @@ import type { CommandHandler, CommandRegistration } from "./command-router.js";
  *   - start-game            (owner)  — /开场: owner-gated AIDM start (roster all-verified guard).
  *   - approve               (owner)  — /批准 <项>: write a verifier exception.
  *   - set-roster            (owner)  — declare the explicit party (who may /create-character-card).
+ *   - add-ai-seat           (owner)  — add an AI teammate seat: genesis → SAME verifier → bind (#37).
  *
  * The HANDLERS here are STUBS injected by the caller — real handlers land in the
  * downstream slices (#33–#37). This module only declares the names↔scope wiring
@@ -22,6 +23,8 @@ export interface CommandSetHandlers {
   readonly startGame: CommandHandler;
   readonly approve: CommandHandler;
   readonly setRoster: CommandHandler;
+  /** Owner adds an AI teammate seat — same create→verify→bind path (#37). */
+  readonly addAiSeat: CommandHandler;
 }
 
 /** Human-facing descriptions used when registering the commands as guild application commands. */
@@ -31,6 +34,7 @@ export const COMMAND_DESCRIPTIONS: Readonly<Record<string, string>> = {
   "start-game": "Owner only: start the game once every roster card is verified.",
   "approve": "Owner only: approve a verifier exception for the campaign.",
   "set-roster": "Owner only: declare the campaign roster (who may create cards).",
+  "add-ai-seat": "Owner only: add an AI teammate seat (auto-generated, then reviewed like any card).",
 };
 
 /**
@@ -45,5 +49,6 @@ export function createCommandSet(handlers: CommandSetHandlers): CommandRegistrat
     { name: "start-game", scope: "owner", handler: handlers.startGame },
     { name: "approve", scope: "owner", handler: handlers.approve },
     { name: "set-roster", scope: "owner", handler: handlers.setRoster },
+    { name: "add-ai-seat", scope: "owner", handler: handlers.addAiSeat },
   ];
 }

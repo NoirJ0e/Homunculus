@@ -26,6 +26,7 @@ import { createRealDiscordAdmin } from "./adapters/discord/real-discord-admin.js
 import { makeRunners } from "./runtime/runners.js";
 import { FileCampaignStore } from "./adapters/store/file-campaign-store.js";
 import { FileRosterStore } from "./adapters/store/file-roster-store.js";
+import { FileSoulStore } from "./adapters/store/file-soul-store.js";
 import { FileCampaignMetaStore } from "./adapters/store/file-campaign-meta-store.js";
 import { Dispatcher } from "./runtime/dispatcher.js";
 import { CardCreationSessionTable } from "./runtime/card-creation-session.js";
@@ -55,12 +56,22 @@ let active = true;
 
 // Persistent campaign bibles (#32, ADR-0012): survives restart so the AIDM still
 // knows which campaign it's running after a process bounce.
-const campaignStore = new FileCampaignStore(process.env.DATA_DIR ?? "data");
+const dataDir = process.env.DATA_DIR ?? "data";
+const campaignStore = new FileCampaignStore(dataDir);
+
+// Persisted roster + souls (#30). The AIDM runner reads its VERIFIED, BOUND AI
+// teammates back from these (replacing ADR-0011's inlined genesisFullAuto bypass,
+// #37). v1 single-session: souls are scoped to the lobby campaign (see the
+// runtime-config hardcoded-debt note — multi-campaign soul-store wiring later).
+const rosterStore = new FileRosterStore(dataDir);
+const soulStore = new FileSoulStore(dataDir, campaignId(cfg.lobbyCampaign));
 
 const runners = makeRunners({
   discordClient,
   adminPort,
   campaignStore,
+  soulStore,
+  rosterStore,
   defaultArchetype: cfg.defaultArchetype,
   isSessionActive: () => active,
   onError: (where, error) => console.error(`[runner-error] ${where}`, error),
@@ -86,8 +97,6 @@ const dispatcher = new Dispatcher({
 // and starts the AIDM (`/start-game`) — the main `role=aidm` channel no longer
 // auto-starts on a plain message. Slash commands are the deterministic control
 // surface (ADR-0012). Per-campaign stores are file-backed (survive restart).
-const dataDir = process.env.DATA_DIR ?? "data";
-const rosterStore = new FileRosterStore(dataDir);
 const metaStore = new FileCampaignMetaStore(dataDir);
 
 // Per-event campaign resolution: a command targets the campaign its channel is
@@ -112,6 +121,11 @@ const commandSet = createCommandSet({
   createCharacterCard: async () => {},
   verifyCard: async () => {},
   approve: async () => {},
+  // #37 — the real `createAddAiSeatHandler(...)` runs genesis → SAME verifier →
+  // capped auto-revise → bind. Its verifier + reviser LLM seams bind in the #36
+  // all-chain alongside the real verify-card LLM; stubbed here like verifyCard so
+  // the set is whole and no unverified AI card is silently auto-bound.
+  addAiSeat: async () => {},
   setRoster: createSetRosterHandler({
     rosterStore,
     metaStore,

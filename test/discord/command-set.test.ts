@@ -14,6 +14,7 @@ function noopHandlers(): CommandSetHandlers {
     startGame: vi.fn(async () => {}),
     approve: vi.fn(async () => {}),
     setRoster: vi.fn(async () => {}),
+    addAiSeat: vi.fn(async () => {}),
   };
 }
 
@@ -27,7 +28,8 @@ describe("#31 createCommandSet — ADR-0012 initial command set + scopes", () =>
     expect(scopeByName.get("start-game")).toBe("owner");
     expect(scopeByName.get("approve")).toBe("owner");
     expect(scopeByName.get("set-roster")).toBe("owner");
-    expect(set).toHaveLength(5);
+    expect(scopeByName.get("add-ai-seat")).toBe("owner");
+    expect(set).toHaveLength(6);
   });
 
   test("every command has a registration-ready description", () => {
