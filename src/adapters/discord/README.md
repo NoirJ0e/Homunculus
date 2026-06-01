@@ -2,6 +2,28 @@
 
 This directory contains the real Discord adapter for the Substrate + HumanInbox ports.
 
+---
+
+## v2 当前入口：零摩擦开团（ADR-0011）
+
+**现在不需要手动拉 webhook、抄 thread id、写死单人配置了。** 把 bot 拉进服务器，`npm start`，在频道里说话即可——concierge 自动建团骨架，dispatcher 按频道 topic 路由到对应角色（concierge / AIDM / 开卡）。
+
+**Setup（一次性）：**
+
+1. Discord Developer Portal 建应用 + bot；**OAuth2 → URL Generator 勾 `bot` + Administrator 权限**（私服 scope，不做 security audit，省去逐项裁剪），用生成的 URL 邀请 bot。
+2. Bot 页面开 **Message Content Intent**（gateway 推真人消息要它）。
+3. `.env`（见 `.env.example`）：
+   ```
+   CLAUDE_CODE_OAUTH_TOKEN=...    # 或 ANTHROPIC_API_KEY
+   DISCORD_BOT_TOKEN=...
+   DISCORD_GUILD_ID=...           # 目标服务器 id（开发者模式右键服务器→复制 ID）
+   ```
+4. `npm start`。在任意「无 Homunculus topic」的频道（如 General）说「我想跑《某团名》」→ 门房（concierge）跟你聊出四要素 → 自动建 Category + 主线频道 + webhook + 写路由 topic + 登记战役 → 你去主线频道开口，AIDM 按需起场。
+
+**机制**：一个 bot、一个常驻进程、一张活跃 query 表；频道 topic 存路由指针（`homunculus:campaign=…;role=aidm`），灵魂/战役本体另存（v1 为进程内 in-memory，持久化见 issue #29）。`(` 开头的消息 = OOC，被 strip、不喂 DM。详见 ADR-0011 + `docs/plans/zero-friction-genesis-v1.md`。
+
+> 下面的「Human Runbook — Full Setup」「v1 playable」是 ADR-0010 时代**手动单场景**的旧流程，已被上面的零摩擦入口取代，保留作历史参考与底层端口契约说明。
+
 ## Architecture Summary
 
 | Concept | Discord mapping |
