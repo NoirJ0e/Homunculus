@@ -30,6 +30,16 @@
 
 审卡 agent **只读权威合法性状态**：战役 bible 的合法性规则（基调/年代/等级区间/`bespokeRules`/道具规则）+ 一份 owner 经 `/批准` 写入的**已批准例外清单**。它**无视玩家散文里任何「我跟 DM 商量过」之类的声明**——权威只来自玩家无法伪造的状态（owner-only 命令写的清单），不来自 prose。盲盒安全（[ADR-0007]）：审卡只拿合法性语境，**不给 secretTruth**。
 
+### 审卡 provenance-agnostic：AI 席位走同一道闸
+
+**合法性是「卡 vs 战役规则」的事,与这张卡由谁、怎么造无关。** 因此 verifier 是 provenance-agnostic 的单一合法性闸,核心 = `verify(card, campaignLegality) → verdict + feedback`,**任何卡入团都过它**——AI `genesisFullAuto`/`genesisSoul` 生成的队友卡**不豁免**(年代/题材不符,以后有 sheet/道具更甚)。
+
+统一模型:**名单上每个席位(真人 or AI)的卡都走 create → verify → bind,在开场前完成**,区别只在创建者与失败后的改写者:
+- **真人席**:开卡 thread 人工捏 + `/verify card` 反馈环,人改。
+- **AI 席**:服务器端 genesis 生成 → 同一 verifier → 不过则**自动改写环(capped)**:生成 agent 拿 feedback 自动调整/重生,最多 N 次;仍不过 → 通知 owner 兜底(`/批准` 例外 / 换 archetype / 手动定夺)。与人卡反馈环同构,只是「改写者」从真人换成 AI + owner 兜底。
+
+含义:AI 队友应在**备团期**作为名单席位 create→verify→bind,而**不是**像 [ADR-0011] v1 那样在 AIDM 起场时内联 `genesisFullAuto` 凭空冒出(那条旁路绕过了审卡,本 ADR 纠正)。
+
 ### 命令驱动天然绕开 thread-no-topic
 
 开卡/审卡的 thread **不靠 topic 路由**：slash command 的 interaction 自带 invoker + thread 上下文，据此把「这条 thread」绑定到「这个玩家的开卡/审卡会话」。thread 里的后续自由文本投给该会话。于是 [ADR-0011] 标记的「thread 无 topic 路由不到」对开卡/审卡不再是问题（主线频道仍用 topic `role=aidm` 路由 AIDM）。
@@ -60,12 +70,15 @@ data/campaigns/<campaignId>/
 - **审卡 agent 自行裁量例外**：否决——被玩家话术忽悠；改「只认权威状态 + owner-only `/批准`」。
 - **git 全量持久化（ADR-0004 fork/merge）**：推迟——先 JSON 目录，目录可后续 git 化。
 - **隐式名单（谁开卡谁算）**：否决——选显式名单。
+- **AI 生成的队友卡免审（服务器端直接绑定）**：否决——合法性与 provenance 无关,AI 卡照样可能违和;走同一 verifier + 自动改写环 + owner 兜底。
+- **AI 卡不过就重 roll 全新一张**：否决——可能反复撞同类违和、不收敛;选带 feedback 的自动改写环（capped）。
 
 ## 后果
 
 - **新增 slash command 输入模态**：Discord `interactionCreate` 接进运行时（与现有 `messageCreate` 网关并列）；命令注册（guild application commands）。dispatcher / 运行时要能消费 command 事件并据 invoker+thread 绑定会话。
 - **新增**：开卡辅助 agent + 审卡 agent（有状态、per-player thread 会话）；`SoulStore`/`CardStore` 文件后端 + `CampaignStore` + 例外/名单 store + **非-AIDM 写卡路径**；开场闸改造（主线频道不再 auto-start AIDM，改 owner `/开场`）；新频道/thread 引导消息。
 - **[ADR-0011] 的 in-memory CampaignStore 升级为文件持久**（重启续命，修掉「重启后 AIDM 又不知道战役」）。
+- **verifier 设计为 provenance-agnostic 复用核心**；AI 队友席位改为备团期 create→verify→bind（自动改写环 + owner 兜底），**取代 [ADR-0011] AIDM runner 内联 `genesisFullAuto` 的旁路**（该旁路绕过审卡）。
 - **[ADR-0004] git canonicity 仍后续**：本 ADR 只落文件后端，目录布局为其留好路（fork/merge/discard、兵分两路晚点接）。
 - **留给 plan 的实现细节**：具体命令名全集；开卡辅助 agent 怎么产数值（v1 模板/掷骰 vs 玩家手填）；thread 会话的归档/生命周期；审卡↔开卡 在 thread 内的衔接。
 - 提交用 `--no-gpg-sign`（本仓库 SSH 签名代理不可用）。
