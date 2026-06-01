@@ -10,6 +10,8 @@ import { AgentNpc } from "../adapters/agent-sdk/agent-npc.js";
 import { buildDmSystemPrompt } from "../adapters/agent-sdk/dm-prompt.js";
 import { buildConciergePrompt } from "../adapters/agent-sdk/concierge-prompt.js";
 import { createDiscordAdminMcpServer } from "../adapters/agent-sdk/discord-admin-mcp.js";
+import { createGenesisMcpServer, type CampaignStore } from "../adapters/agent-sdk/genesis-mcp.js";
+import type { CampaignBible } from "../domain/campaign.js";
 import { dmQueryStream, npcGenerate } from "../adapters/agent-sdk/sdk-runner.js";
 import { genesisFullAuto } from "../genesis/soul-genesis.js";
 import { runDmDriver } from "./dm-driver.js";
@@ -36,7 +38,23 @@ const CONCIERGE_TOOLS = [
   "mcp__discord-admin__create_webhook",
   "mcp__discord-admin__create_thread",
   "mcp__discord-admin__set_channel_topic",
+  "mcp__genesis__genesis_campaign",
 ] as const;
+
+/**
+ * Build the AIDM's opening brief from a registered CampaignBible — so it narrates
+ * ON-THEME (the #28-live bug was the AIDM seeing only a category id). Carries the
+ * AIDM-private secretTruth (底牌) + the opening milestone's goal/cue. Pure + tested.
+ */
+export function buildCampaignBrief(bible: CampaignBible): string {
+  const opening = bible.milestones[0];
+  const lines = [bible.secretTruth];
+  if (opening !== undefined) {
+    lines.push(`\n【开局】目标：${opening.goal}`);
+    lines.push(`入场引子：${opening.enterCue}`);
+  }
+  return lines.join("\n");
+}
 
 export interface RunnerDeps {
   /** Shared webhook-out client (one per process); per-channel substrates wrap it. */
@@ -92,6 +110,11 @@ export function makeRunners(deps: RunnerDeps): Runners {
   const archetype = deps.defaultArchetype ?? "战士";
   const onError = deps.onError ?? (() => {});
 
+  // Shared in-memory campaign registry: the concierge's genesis_campaign tool
+  // writes a CampaignBible keyed by campaign id; the AIDM runner reads it back.
+  // In-memory only (v1) — persistent/evolving storage is issue #29.
+  const campaignStore: CampaignStore = new Map();
+
   // Per-channel teardown hooks the dispatcher's thread-archive handler invokes.
   const teardowns = new Map<string, () => void>();
 
@@ -140,8 +163,12 @@ export function makeRunners(deps: RunnerDeps): Runners {
 
     const referee = new Referee({ aidmId: aidm, substrate, npc, humanInbox: inbox, roster });
 
+    const bible = campaignStore.get(ctx.routing.campaign);
+    const campaignBrief = bible
+      ? buildCampaignBrief(bible)
+      : `战役 ${ctx.routing.campaign}：未登记战役语境，按通用开场处理。`;
     const systemPrompt = buildDmSystemPrompt({
-      brief: `战役：${ctx.routing.campaign}。在主线频道开场，承接玩家与队友 ${soul.personaCore.name} 的行动。`,
+      brief: `${campaignBrief}\n\n在主线频道开场，承接玩家与队友 ${soul.personaCore.name} 的行动。`,
       sceneId: scene,
       cast: [
         { actorId: npcId, role: "npc" },
@@ -172,7 +199,10 @@ export function makeRunners(deps: RunnerDeps): Runners {
       prompt: channel.iterable,
       options: {
         systemPrompt: buildConciergePrompt(),
-        mcpServers: { "discord-admin": createDiscordAdminMcpServer(deps.adminPort) },
+        mcpServers: {
+          "discord-admin": createDiscordAdminMcpServer(deps.adminPort),
+          genesis: createGenesisMcpServer(campaignStore),
+        },
         allowedTools: [...CONCIERGE_TOOLS],
         permissionMode: "bypassPermissions",
       },

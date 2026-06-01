@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
-import { postAssistantText } from "../../src/runtime/runners.js";
+import { postAssistantText, buildCampaignBrief } from "../../src/runtime/runners.js";
 import type { DiscordClient, SentMessage } from "../../src/adapters/discord/discord-substrate.js";
+import { genesisCampaign } from "../../src/genesis/campaign-genesis.js";
 
 /**
  * Regression for the live "[ready] 但完全没反应" bug: the conversational concierge /
@@ -71,5 +72,26 @@ describe("postAssistantText", () => {
     );
 
     expect(posts.map((p) => p.msg.content)).toEqual(["真正的回复"]);
+  });
+});
+
+describe("buildCampaignBrief", () => {
+  test("carries the campaign's secretTruth + opening milestone so the AIDM narrates on-theme", () => {
+    const bible = genesisCampaign({
+      premise: "沉船湾海底的古老诅咒正在苏醒",
+      tone: "克系恐怖",
+      desiredClimax: "潜入沉船核心斩断诅咒之源",
+      levelBand: [1, 5],
+    });
+
+    const brief = buildCampaignBrief(bible);
+
+    // The AIDM-private 底牌 (premise/tone) reaches the brief — no more generic tavern.
+    expect(brief).toContain("沉船湾海底的古老诅咒正在苏醒");
+    expect(brief).toContain("克系恐怖");
+    // And the opening milestone's cue is included to anchor the first scene.
+    const opening = bible.milestones[0];
+    expect(opening).toBeDefined();
+    if (opening) expect(brief).toContain(opening.enterCue);
   });
 });
