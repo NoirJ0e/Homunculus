@@ -1,6 +1,6 @@
 import type { Soul } from "../domain/soul.js";
 import type { CharacterSheet } from "../ports/card-store.js";
-import type { CampaignBible } from "../domain/campaign.js";
+import type { CampaignBible, RuleSystem } from "../domain/campaign.js";
 import type { SanctionedException } from "../domain/card-lifecycle.js";
 
 /**
@@ -43,7 +43,13 @@ export interface VerifiableCard {
  * authority).
  */
 export interface CampaignLegality {
-  /** Tonal genre the card must fit (e.g. "黑色侦探", "克系恐怖"). */
+  /**
+   * The rule system — the AUTHORITATIVE legality axis for character options. A
+   * half-elf ranger is legal under `dnd5e` but NOT under `coc7` (occupations +
+   * stats, no races/classes). ORTHOGONAL to tone (a 克系 game can run on dnd5e).
+   */
+  readonly system?: RuleSystem;
+  /** Tonal genre — FLAVOUR only, not a legality axis (e.g. "克系恐怖"). */
   readonly tone?: string;
   /** Era/setting label the card must fit (e.g. "1920s", "中世纪"). */
   readonly era?: string;
@@ -80,15 +86,16 @@ export interface CardVerifierLlm {
 export function buildLegality(
   bible: CampaignBible,
   exceptions: readonly SanctionedException[],
-  knobs: { tone?: string; era?: string; levelBand?: readonly [number, number] } = {},
 ): CampaignLegality {
   return {
-    ...(knobs.tone !== undefined ? { tone: knobs.tone } : {}),
-    ...(knobs.era !== undefined ? { era: knobs.era } : {}),
-    ...(knobs.levelBand !== undefined ? { levelBand: knobs.levelBand } : {}),
+    system: bible.system,
+    tone: bible.tone,
+    levelBand: bible.levelBand,
     bespokeRules: bible.bespokeRules,
     exceptions,
     // NOTE: bible.secretTruth is intentionally NOT read — blindbox (ADR-0007).
+    // system/tone/levelBand ARE read: they're the NON-secret legality facts the
+    // verifier must enforce (esp. system — which character options are legal).
   };
 }
 

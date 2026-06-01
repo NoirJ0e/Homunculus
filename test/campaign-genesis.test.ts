@@ -10,6 +10,7 @@ const seed: CampaignSeed = {
   tone: "黑色侦探",
   desiredClimax: "在邪教仪式上揭穿市长的真面目",
   levelBand: [1, 5],
+  system: "coc7",
 };
 
 describe("#12 campaign genesis — blindbox seed expansion", () => {

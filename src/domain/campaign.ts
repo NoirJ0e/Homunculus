@@ -39,9 +39,24 @@ export interface PersonaTemplate {
   readonly seed: string;
 }
 
+/**
+ * The rule system a campaign runs under. ORTHOGONAL to tone/genre: you can run a
+ * 克系恐怖 (CoC-flavoured) game under D&D5e. The system is what decides which
+ * CHARACTER OPTIONS are legal — a half-elf ranger is a D&D5e construct that has
+ * no meaning under CoC7 (which has occupations + stats, no races/classes). The
+ * card verifier checks card-vs-SYSTEM fit, not card-vs-tone.
+ */
+export type RuleSystem = "coc7" | "dnd5e";
+
 export interface CampaignBible {
   /** DM-private backstory — never posted (ADR-0002: hiding = not sending). */
   readonly secretTruth: string;
+  /** The rule system (NON-secret — players know it; chosen at campaign creation). */
+  readonly system: RuleSystem;
+  /** Tonal genre, NON-secret (e.g. "克系恐怖"). Flavour, not a legality axis. */
+  readonly tone: string;
+  /** [minLevel, maxLevel] power band, NON-secret. */
+  readonly levelBand: readonly [number, number];
   readonly milestones: readonly Milestone[];
   readonly npcs: readonly PersonaTemplate[];
   readonly worldClocks: readonly WorldClockSpec[];

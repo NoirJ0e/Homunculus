@@ -88,6 +88,9 @@ describe("#30 FileCardStore (read-only port + separate non-AIDM write seam)", ()
 describe("#30 FileCampaignStore (bible)", () => {
   const bible: CampaignBible = {
     secretTruth: "市长是凶手",
+    system: "dnd5e",
+    tone: "黑色侦探",
+    levelBand: [1, 5],
     milestones: [],
     npcs: [],
     worldClocks: [],

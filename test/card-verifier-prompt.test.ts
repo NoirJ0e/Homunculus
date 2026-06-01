@@ -52,6 +52,21 @@ describe("verifier prompt", () => {
     const out = renderLegality({ bespokeRules: {}, exceptions: [] });
     expect(out).toContain("（无）");
   });
+
+  test("renderLegality surfaces the rule system", () => {
+    const out = renderLegality({ system: "coc7", bespokeRules: {}, exceptions: [] });
+    expect(out).toContain("规则系统");
+    expect(out).toContain("coc7");
+  });
+
+  test("instructs system-fit by RULE SYSTEM, not tone (coc7 forbids D&D race/class constructs)", () => {
+    const p = buildVerifierPrompt(card, { system: "coc7", tone: "克系恐怖", bespokeRules: {}, exceptions: [] });
+    expect(p).toContain("coc7");
+    // Tells the model coc7 has no races/classes → a 半精灵游侠 is illegal…
+    expect(p).toContain("种族");
+    // …and that the rule SYSTEM, not the tone/genre, decides legal options.
+    expect(p).toContain("判系统，不判基调");
+  });
 });
 
 describe("parseVerdict", () => {

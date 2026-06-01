@@ -42,6 +42,7 @@ describe("genesis_campaign MCP tool", () => {
       desiredClimax: "潜入沉船核心斩断诅咒之源",
       minLevel: 1,
       maxLevel: 5,
+      system: "coc7",
     });
 
     const bible = store.get(campaignId("cat-123"));
@@ -49,6 +50,8 @@ describe("genesis_campaign MCP tool", () => {
     // The deterministic distiller embeds premise/tone/climax into the AIDM 底牌.
     expect(bible?.secretTruth).toContain("沉船湾海底的古老诅咒正在苏醒");
     expect(bible?.secretTruth).toContain("克系恐怖");
+    // The NON-secret rule system is persisted so the verifier can enforce it.
+    expect(bible?.system).toBe("coc7");
     // And derives a 3-act milestone skeleton.
     expect(bible?.milestones.length).toBe(3);
   });
@@ -61,6 +64,7 @@ describe("genesis_campaign MCP tool", () => {
       desiredClimax: "封印那扇门",
       minLevel: 1,
       maxLevel: 3,
+      system: "dnd5e",
     });
 
     // Simulate a process restart: a brand-new instance reads from disk, not memory.

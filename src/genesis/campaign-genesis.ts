@@ -13,7 +13,7 @@
  * run entirely on the deterministic path — no network, no real LLM.
  */
 
-import type { CampaignBible, Milestone, WorldClockSpec } from "../domain/campaign.js";
+import type { CampaignBible, Milestone, WorldClockSpec, RuleSystem } from "../domain/campaign.js";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -29,6 +29,8 @@ export interface CampaignSeed {
   readonly desiredClimax: string;
   /** [minLevel, maxLevel] — integer level band for the campaign. */
   readonly levelBand: readonly [number, number];
+  /** The rule system the campaign runs under (forced choice at creation). */
+  readonly system: RuleSystem;
 }
 
 /** Options forwarded through genesisCampaign (does NOT change the generated bible). */
@@ -150,6 +152,12 @@ class DeterministicDistiller implements CampaignDistiller {
   distill(seed: CampaignSeed): CampaignBible {
     return {
       secretTruth: deriveSecretTruth(seed),
+      // Non-secret legality facts carried straight through from the seed so the
+      // card verifier (and players) can see them — tone/system/levelBand are
+      // openly known; only secretTruth is hidden (blindbox, ADR-0007).
+      system: seed.system,
+      tone: seed.tone,
+      levelBand: seed.levelBand,
       milestones: deriveMilestones(seed),
       npcs: [],
       worldClocks: deriveWorldClocks(seed),

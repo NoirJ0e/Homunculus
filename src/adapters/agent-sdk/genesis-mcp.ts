@@ -37,6 +37,7 @@ export function genesisTools(store: CampaignStore): SdkMcpToolDefinition<any>[] 
         desiredClimax: z.string(),
         minLevel: z.number(),
         maxLevel: z.number(),
+        system: z.enum(["coc7", "dnd5e"]),
       },
       async (args) => {
         const bible = genesisCampaign({
@@ -44,6 +45,7 @@ export function genesisTools(store: CampaignStore): SdkMcpToolDefinition<any>[] 
           tone: args.tone,
           desiredClimax: args.desiredClimax,
           levelBand: [args.minLevel, args.maxLevel],
+          system: args.system,
         });
         store.set(campaignId(args.campaignId), bible);
         return {

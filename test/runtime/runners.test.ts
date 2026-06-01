@@ -87,6 +87,7 @@ describe("buildCampaignBrief", () => {
       tone: "克系恐怖",
       desiredClimax: "潜入沉船核心斩断诅咒之源",
       levelBand: [1, 5],
+      system: "coc7",
     });
 
     const brief = buildCampaignBrief(bible);
@@ -118,6 +119,7 @@ describe("buildCampaignBrief", () => {
         tone: "克系恐怖",
         desiredClimax: "潜入沉船核心斩断诅咒之源",
         levelBand: [1, 5],
+        system: "coc7",
       });
 
       // A prior process writes the bible to disk…

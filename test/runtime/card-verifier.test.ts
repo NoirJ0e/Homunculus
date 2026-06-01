@@ -33,6 +33,9 @@ function card(soul: Soul, over: Partial<VerifiableCard> = {}): VerifiableCard {
 
 const bible = (over: Partial<CampaignBible> = {}): CampaignBible => ({
   secretTruth: "【AIDM 底牌】真凶是市长，严禁泄露",
+  system: "coc7",
+  tone: "克系恐怖",
+  levelBand: [1, 5],
   milestones: [],
   npcs: [],
   worldClocks: [],
@@ -94,6 +97,8 @@ describe("verifyCard — provenance-agnostic legality gate", () => {
     // Structural: there is no secretTruth FIELD on the legality object at all.
     expect(Object.keys(legality)).not.toContain("secretTruth");
     expect(JSON.stringify(legality)).not.toContain("真凶是市长");
+    // But the NON-secret rule system IS surfaced so the verifier can enforce it.
+    expect(legality.system).toBe("coc7");
 
     // And the adjudicator only ever receives this secret-free context.
     let seen: CampaignLegality | undefined;
@@ -114,6 +119,12 @@ describe("verifyCard — provenance-agnostic legality gate", () => {
     // No "approvals" / "playerClaims" / prose channel exists to smuggle a
     // "我跟 DM 商量过" claim through — the only allow-list is `exceptions`.
     const keys = Object.keys(legality).sort();
-    expect(keys).toEqual(["bespokeRules", "exceptions"]);
+    // Exactly the authoritative legality fields — system/tone/levelBand are the
+    // non-secret campaign facts, bespokeRules + exceptions the rule buckets.
+    expect(keys).toEqual(["bespokeRules", "exceptions", "levelBand", "system", "tone"]);
+    // No prose channel to smuggle a "我跟 DM 商量过" claim, and no secretTruth.
+    for (const forbidden of ["approvals", "playerClaims", "dmApproved", "secretTruth"]) {
+      expect(keys).not.toContain(forbidden);
+    }
   });
 });

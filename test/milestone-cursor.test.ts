@@ -4,6 +4,9 @@ import { initCursor, completeCurrent, discoverLead } from "../src/engine/milesto
 
 const bible: CampaignBible = {
   secretTruth: "市长就是邪教首领。",
+  system: "dnd5e",
+  tone: "黑色侦探",
+  levelBand: [1, 5],
   milestones: [
     { id: "m1", goal: "进城遇袭", enterCue: "城门口的骚乱", scenes: [], triggers: [], branchPoints: [] },
     { id: "m2", goal: "查到邪教线索", enterCue: "地窖的符号", scenes: [], triggers: [], branchPoints: [] },

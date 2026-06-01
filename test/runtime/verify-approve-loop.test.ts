@@ -21,6 +21,9 @@ const sheet: CharacterSheet = { system: "coc7", skills: { 侦查: 60 } };
 
 const bible: CampaignBible = {
   secretTruth: "【AIDM 底牌】真凶是市长，严禁泄露",
+  system: "coc7",
+  tone: "克系恐怖",
+  levelBand: [1, 5],
   milestones: [],
   npcs: [],
   worldClocks: [],
@@ -83,7 +86,7 @@ describe("verify ↔ approve loop (provenance-agnostic, prose-proof, blindbox)",
       llm,
       readCard: card,
       // Legality is rebuilt each round from the LIVE exception store.
-      readLegality: () => buildLegality(bible, exceptions.list(camp), { era: "1920s" }),
+      readLegality: () => buildLegality(bible, exceptions.list(camp)),
       soulStore: { load: () => undefined, save: (s) => soulsSaved.push(s.id) },
       cardWriter: { write: () => { sheetsWritten += 1; } },
       rosterStore: { get: () => undefined, set: () => {}, markApproved: () => { approved += 1; } },
