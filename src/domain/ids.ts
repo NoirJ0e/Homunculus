@@ -7,6 +7,8 @@
 
 export type ActorId = string & { readonly __brand: "ActorId" };
 export type SceneId = string & { readonly __brand: "SceneId" };
+export type CampaignId = string & { readonly __brand: "CampaignId" };
 
 export const actorId = (s: string): ActorId => s as ActorId;
 export const sceneId = (s: string): SceneId => s as SceneId;
+export const campaignId = (s: string): CampaignId => s as CampaignId;
