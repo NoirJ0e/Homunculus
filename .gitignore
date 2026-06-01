@@ -67,3 +67,11 @@ Thumbs.db
 agents/*/qmd/
 agents/*/memory/
 .homunculus/
+
+# v2 (TypeScript)
+node_modules/
+dist/
+*.tsbuildinfo
+
+# agent worktrees / local state
+.claude/

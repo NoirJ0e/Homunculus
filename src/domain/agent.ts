@@ -1,0 +1,66 @@
+import type { ActorId, SceneId } from "./ids.js";
+import type { Post } from "./post.js";
+import type { PersonaCore, EpisodicMemory } from "./soul.js";
+
+/**
+ * Control signals are the out-of-band pacing channel of ADR-0003. Only the
+ * AIDM emits them: `awaiting` opens a barrier on a set of actors; `continue`
+ * advances the beat once the barrier has released.
+ */
+export type ControlSignal =
+  | { readonly kind: "awaiting"; readonly actors: readonly ActorId[] }
+  | { readonly kind: "continue" };
+
+/**
+ * Authoritative state writes the AIDM requests via its tool-call channel
+ * (ADR-0002: the AIDM is the sole state writer). #6 covers scene membership;
+ * later slices extend this union (milestones, world clock, …).
+ */
+export type SceneEffect =
+  | { readonly kind: "add-member"; readonly sceneId: SceneId; readonly actor: ActorId }
+  | { readonly kind: "remove-member"; readonly sceneId: SceneId; readonly actor: ActorId }
+  // Plot-spine writes (ADR-0007), all judged by the AIDM:
+  | { readonly kind: "complete-milestone" }
+  | { readonly kind: "discover-lead"; readonly lead: string }
+  | { readonly kind: "advance-clock"; readonly clockId: string };
+
+/**
+ * A check the AIDM calls for (喊检定): a specific actor rolls a skill at a
+ * difficulty band. The AIDM only calls it — SealDice resolves and is the sole
+ * writer of the sheet (ADR-0001/0002); the character emits the actual `.ra`.
+ */
+export interface CheckCall {
+  readonly actor: ActorId;
+  readonly skill: string;
+  readonly difficulty?: string;
+}
+
+/**
+ * What an actor (AIDM or NPC) returns when asked to take its turn.
+ * - `prose`  — narrative contribution; absent when passing.
+ * - `control`— pacing signal; in practice only the AIDM sets this.
+ * - `pass`   — an explicit, deliberate "I have nothing to add" (ADR-0003).
+ * - `effects`— authoritative state writes; AIDM only (ADR-0002).
+ * - `check`  — the AIDM calls for a check on an actor (喊检定).
+ * - `roll`   — the called-on character emits its `.ra` to resolve a pending check.
+ */
+export interface AgentResponse {
+  readonly prose?: string;
+  readonly control?: ControlSignal;
+  readonly pass?: boolean;
+  readonly effects?: readonly SceneEffect[];
+  readonly check?: CheckCall;
+  readonly roll?: boolean;
+}
+
+/** The slice of the world an actor sees when asked to act. */
+export interface TurnContext {
+  readonly sceneId: SceneId;
+  readonly actorId: ActorId;
+  /** Posts visible to this actor: its scene horizon (#6). */
+  readonly transcript: readonly Post[];
+  /** Resident persona core — always present for a soul-backed actor (#7). */
+  readonly persona?: PersonaCore;
+  /** Recalled episodic memories relevant to this turn (#7). */
+  readonly memories?: readonly EpisodicMemory[];
+}

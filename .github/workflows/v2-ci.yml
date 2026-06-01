@@ -1,0 +1,49 @@
+name: v2 CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - "v2"
+  workflow_dispatch:
+
+concurrency:
+  group: "${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Build & Test (TS engine)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck / build
+        run: npm run build
+
+      - name: Engine purity guard
+        # The deterministic engine must never import a concrete LLM / Discord /
+        # SealDice / HTTP client — only port interfaces and domain types.
+        run: |
+          if grep -rEn "anthropic|discord|axios|node-fetch|adapters/|http://|https://|\bfetch\(" src/engine/; then
+            echo "::error::src/engine imports a forbidden concretion — keep the engine pure (ports only)."
+            exit 1
+          fi
+          echo "engine is pure."
+
+      - name: Test
+        run: npm test
