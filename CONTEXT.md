@@ -76,6 +76,7 @@ SealDice（Go 边车，HTTP/IPC）
 - **Agent SDK 驱动 + 引擎即 MCP 工具裁判（控制权半反转）**：见 [ADR-0009]。
 - **Integration 运行时（Discord 可玩化 + NPC 三层模型 + 真人 gateway 等待）**：见 [ADR-0010]。
 - **零摩擦开团（bot-as-admin + 频道路由的 skill 注入；skill=role/channel=which role；topic 存路由指针、本体在 soul-store）**：见 [ADR-0011]。
+- **开卡→审卡→开场 命令驱动生命周期 + 战役持久化（slash command 管状态、文本管内容；审卡只认权威状态+owner /批准；JSON 按 campaign 分目录）**：见 [ADR-0012]。
 
 ## 寄存待啃（尚未设计）
 
