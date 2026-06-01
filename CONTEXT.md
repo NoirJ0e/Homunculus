@@ -75,6 +75,7 @@ SealDice（Go 边车，HTTP/IPC）
 - **情节记忆召回 v1（最近性 + 关键词，接口可替换为向量库）**：见 [ADR-0008]。
 - **Agent SDK 驱动 + 引擎即 MCP 工具裁判（控制权半反转）**：见 [ADR-0009]。
 - **Integration 运行时（Discord 可玩化 + NPC 三层模型 + 真人 gateway 等待）**：见 [ADR-0010]。
+- **零摩擦开团（bot-as-admin + 频道路由的 skill 注入；skill=role/channel=which role；topic 存路由指针、本体在 soul-store）**：见 [ADR-0011]。
 
 ## 寄存待啃（尚未设计）
 
