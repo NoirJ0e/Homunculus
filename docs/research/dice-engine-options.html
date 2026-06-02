@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>骰子/规则引擎选型 — Homunculus（无头集成视角）</title>
+<style>
+  :root { --bg:#0f1115; --card:#171a21; --line:#2a2f3a; --fg:#e6e8ec; --mut:#9aa3b2; --ok:#3fb950; --warn:#d29922; --bad:#f85149; --acc:#58a6ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.65 -apple-system,Segoe UI,Roboto,"Noto Sans CJK SC","Microsoft YaHei",sans-serif; }
+  .wrap { max-width:980px; margin:0 auto; padding:32px 20px 80px; }
+  h1 { font-size:26px; margin:0 0 4px; }
+  h2 { font-size:19px; margin:34px 0 10px; padding-top:14px; border-top:1px solid var(--line); }
+  h3 { font-size:16px; margin:18px 0 6px; }
+  .sub { color:var(--mut); margin:0 0 18px; }
+  code { background:#0b0d11; border:1px solid var(--line); border-radius:4px; padding:1px 5px; font-size:13px; }
+  table { width:100%; border-collapse:collapse; margin:12px 0; font-size:13.5px; }
+  th,td { border:1px solid var(--line); padding:8px 10px; text-align:left; vertical-align:top; }
+  th { background:#1b1f27; color:var(--mut); font-weight:600; }
+  .pill { display:inline-block; border-radius:999px; padding:1px 9px; font-size:12px; font-weight:600; }
+  .p-ok { background:rgba(63,185,80,.15); color:var(--ok); }
+  .p-warn { background:rgba(210,153,34,.15); color:var(--warn); }
+  .p-bad { background:rgba(248,81,73,.15); color:var(--bad); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px 18px; margin:14px 0; }
+  .rec { border-left:3px solid var(--ok); }
+  .acc { color:var(--acc); }
+  ul { margin:6px 0 6px; padding-left:22px; } li { margin:3px 0; }
+  .small { color:var(--mut); font-size:12.5px; }
+  a { color:var(--acc); }
+  .verdict { font-weight:700; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>骰子 / 规则引擎选型</h1>
+<p class="sub">Homunculus PRD#2 · A（机械域）路线调研 · 2026-06-02</p>
+
+<div class="card">
+<h3 style="margin-top:0">评分用例（不是"哪个骰子 bot 最好"，而是"哪个最适合我们")</h3>
+<ul>
+  <li><b>无头驱动</b>：由我们的 TS 引擎/AIDM 程序化调用，不依赖真人在聊天框里敲指令。</li>
+  <li><b>不冒出第二个 bot</b>：频道里只应出现我们的 agent 分身；骰子引擎必须在幕后，不能是另一个会发言的聊天机器人（ADR-0001 红线）。</li>
+  <li><b>多系统</b>：至少 CoC7 + D&D5e，按系统判定成功/失败/大成功。</li>
+  <li><b>能实现 <code>SealDicePort</code></b>：现有引擎只对着这个端口（<code>NativeDice</code> 已实现它），所以选型 = 换一个适配器实现 + 编排，引擎不动、锁定度低。</li>
+  <li><b>角色卡归属</b>：叙事灵魂（soul）一定归我们；机械卡（sheet）归谁可谈——但"谁拥有卡"决定集成复杂度（ADR-0001 的双头冲突）。</li>
+</ul>
+</div>
+
+<h2>对比矩阵</h2>
+<table>
+<thead><tr>
+  <th>方案</th><th>集成形态</th><th>多系统</th><th>角色卡</th><th>第二 bot 风险</th><th>语言/部署</th><th>无头契合</th>
+</tr></thead>
+<tbody>
+<tr>
+  <td><b>BCDice</b><br><span class="small">npm <code>bcdice</code> / bcdice-api</span></td>
+  <td>① 进程内 TS 库<br>② 或自托管 HTTP API</td>
+  <td><span class="pill p-ok">数百系统</span><br>CoC7 强、含 DnD 等</td>
+  <td><span class="pill p-warn">无</span> 纯求值器，不存卡</td>
+  <td><span class="pill p-ok">无</span> 库/服务，无聊天</td>
+  <td>Ruby 核心 + 官方 TS/JS 移植；MIT</td>
+  <td><span class="pill p-ok">最佳</span></td>
+</tr>
+<tr>
+  <td><b>rpg-dice-roller</b><br><span class="small">npm <code>@dice-roller/rpg-dice-roller</code></span></td>
+  <td>进程内 TS 库</td>
+  <td><span class="pill p-bad">无系统规则</span><br>只算骰子表达式</td>
+  <td><span class="pill p-bad">无</span></td>
+  <td><span class="pill p-ok">无</span></td>
+  <td>JS/TS；MIT；流行</td>
+  <td><span class="pill p-warn">部分</span> 缺规则/卡</td>
+</tr>
+<tr>
+  <td><b>NativeDice</b><br><span class="small">我们现有 TS 实现</span></td>
+  <td>进程内（已是 <code>SealDicePort</code>）</td>
+  <td><span class="pill p-warn">CoC7/DnD 自写</span></td>
+  <td><span class="pill p-warn">我们的 CardStore</span></td>
+  <td><span class="pill p-ok">无</span></td>
+  <td>TS；已在仓库</td>
+  <td><span class="pill p-ok">已契合</span></td>
+</tr>
+<tr>
+  <td><b>SealDice 海豹</b><br><span class="small">当前/基线</span></td>
+  <td><span class="pill p-bad">OneBot v11 反向-WS</span><br>需自写桥 + 解析文字回复</td>
+  <td><span class="pill p-ok">多系统（CN 强）</span></td>
+  <td><span class="pill p-ok">自带卡管理</span></td>
+  <td><span class="pill p-warn">有</span> 本质是聊天 bot</td>
+  <td>Go 守护进程 + Web UI</td>
+  <td><span class="pill p-bad">差</span> 非干净 RPC</td>
+</tr>
+<tr>
+  <td><b>Avrae</b><br><span class="small">D&D Beyond 官方</span></td>
+  <td><span class="pill p-bad">Discord bot</span></td>
+  <td><span class="pill p-bad">仅 D&D5e</span></td>
+  <td><span class="pill p-ok">强（D&D Beyond 导入 + 战斗追踪）</span></td>
+  <td><span class="pill p-bad">是</span> 就是个 Discord bot</td>
+  <td>Python；可 Docker 自托管</td>
+  <td><span class="pill p-bad">差</span> 单系统+绑 Discord</td>
+</tr>
+</tbody>
+</table>
+
+<h2>逐个详评</h2>
+
+<div class="card rec">
+<h3 style="margin-top:0">① BCDice <span class="pill p-ok">推荐</span></h3>
+<p>日本最流行的 TRPG 骰子<b>判定引擎</b>，覆盖数百个系统。关键在于它有两种<b>干净的无头形态</b>：</p>
+<ul>
+  <li><b>官方 TS/JS 移植 <code>npm i bcdice</code></b>（<code>bcdice/bcdice-js</code>，在维护）：进程内 <code>DynamicLoader</code> 动态加载系统（如 <code>Cthulhu7th</code>），求值 <code>CC&lt;=54</code> 返回结构化结果对象（<code>.text</code> + 成功/大成功/大失败）。<b>无服务器、无聊天、无第二 bot</b>——直接在我们 TS 里实现一个 <code>SealDicePort</code>。</li>
+  <li><b>bcdice-api</b>：官方 Web API 服务器形态（也有公共实例 + Go 移植 GoBCDice），适合不想进程内嵌时用。</li>
+</ul>
+<p><b>取舍</b>：它是<b>纯判定器，不管角色卡</b>——所以"卡归我们（soul + sheet 存自己的库）、判定交 BCDice"。这正好不是 ADR-0001 担心的那种双头冲突（那是针对 SealDice <i>想拥有卡</i>）：BCDice 不抢卡，分工天然干净。<b>待核实</b>：BCDice 的强项是 CoC + 日系，<b>D&D5e 的判定深度需要实测确认</b>（属性调整、熟练加值、优势/劣势是否覆盖到位）。</p>
+<p class="verdict">→ 与我们架构契合度最高：进程内库实现 <code>SealDicePort</code>，多系统 + 结构化，零第二-bot，引擎不动。</p>
+</div>
+
+<div class="card">
+<h3 style="margin-top:0">② rpg-dice-roller（npm）</h3>
+<p>成熟、流行、MIT 的 <b>骰子表达式</b>引擎（优势/劣势、爆炸、保留/丢弃、数学式）。但它<b>只算骰子，不懂系统规则、不管卡</b>——"CoC 困难侦查算不算过"这种系统判定要我们自己写。本质上≈我们 <code>NativeDice</code> 现在做的事，只是表达式更全。</p>
+<p class="verdict">→ 想要更强的骰子表达式时可替换 <code>NativeDice</code> 内部用它；但它不提供"按系统判定"，撑不起 A 的"真机械结算"。</p>
+</div>
+
+<div class="card">
+<h3 style="margin-top:0">③ NativeDice（现状）</h3>
+<p>仓库里已有、已实现 <code>SealDicePort</code>、种子 rng、COC7/DND5e 判定，且 <code>call_check</code>/<code>roll</code>/<code>.ra</code> 链路都在——只差接 live + 真结构化卡。<b>零新依赖、最快</b>，足以验"一整场可玩"。</p>
+<p class="verdict">→ PRD#2 的"现在就能动"选项；之后在同一端口后面平滑换 BCDice。</p>
+</div>
+
+<div class="card">
+<h3 style="margin-top:0">④ SealDice 海豹（当前/基线）</h3>
+<p>成熟、CN 社区活跃、自带多系统 + 卡管理。但对外驱动<b>只走 OneBot v11 反向-WS</b>（SealDice 去连一个本该是 QQ 登录框架的反向-WS 端点）；它自带的 HTTP 是<b>管理 Web UI，不是骰子/卡 RPC</b>。所以集成 = 我们自写一个 OneBot v11 服务端桥 + 发合成消息事件（<code>.st</code>/<code>.ra</code>）+ <b>解析它的自然语言文字回复</b>（脆）。且它本质是会发言的聊天 bot，有"第二个 bot"风险。</p>
+<p class="verdict">→ 最重的集成、最脆的接口；除非看重它的 CN 生态/规则库，否则不划算。</p>
+</div>
+
+<div class="card">
+<h3 style="margin-top:0">⑤ Avrae（D&D Beyond 官方）</h3>
+<p>开源（Python，<code>avrae/avrae</code>，可 Docker 自托管），<b>D&D5e 专精</b>：从 D&D Beyond/Dicecloud/Google Sheet 读卡、自动算攻击/检定/豁免、战斗追踪、Draconic 脚本。但它<b>就是一个 Discord 机器人 + 只支持 D&D5e</b>——绑死 Discord（第二 bot）、单系统，与我们"多系统、agent-only、无头"的需求正面冲突。</p>
+<p class="verdict">→ 若我们是"纯 D&D5e + 纯 Discord"会很香；但我们不是。不推荐作无头引擎。</p>
+</div>
+
+<h2>结论与建议</h2>
+<div class="card rec">
+<p><b>选型 = 一个 <code>SealDicePort</code> 适配器决定，锁定度低</b>（引擎只认端口）。按契合度：</p>
+<ol>
+  <li><b>目标态：BCDice（<code>npm bcdice</code> 进程内库）</b> 实现 <code>SealDicePort</code>，<b>卡仍归我们</b>（soul+sheet 自存）。拿到成熟、多系统、结构化判定，且不引入聊天 bot / OneBot 桥。<b>前置实测：D&D5e 判定深度是否够</b>（打个 spike：加载 DnD5e 系统，跑几条攻击/检定/优势，看结构化输出）。</li>
+  <li><b>过渡/现在：继续 NativeDice</b> 把 A 接 live（call_check→投→结算→叙事 闭环 + 真结构化卡）。零新依赖、最快验"一整场"，之后在同一端口后面换 BCDice。</li>
+  <li><b>放弃 SealDice / Avrae 作无头引擎</b>：前者非干净 RPC（OneBot 桥 + 脆解析 + 第二 bot），后者单系统 + 绑 Discord。</li>
+</ol>
+<p class="verdict acc">推荐路径：PRD#2 先用 NativeDice 把机械闭环接 live（不阻塞"一整场"北极星）；并行打一个 BCDice spike 验 D&D5e 深度，通过则把 <code>SealDicePort</code> 实现换成 BCDice。两者共用端口，互不返工。</p>
+</div>
+
+<h2 class="small">来源</h2>
+<ul class="small">
+  <li>BCDice 核心：<a href="https://github.com/bcdice/BCDice">github.com/bcdice/BCDice</a></li>
+  <li>BCDice TS/JS 移植：<a href="https://github.com/bcdice/bcdice-js">github.com/bcdice/bcdice-js</a> · <a href="https://www.npmjs.com/package/bcdice">npm: bcdice</a></li>
+  <li>BCDice Web API：<a href="https://github.com/bcdice/bcdice-api">github.com/bcdice/bcdice-api</a> · Go 移植 <a href="https://github.com/raa0121/GoBCDice">GoBCDice</a></li>
+  <li>rpg-dice-roller：<a href="https://github.com/dice-roller/rpg-dice-roller">github.com/dice-roller/rpg-dice-roller</a> · <a href="https://www.npmjs.com/package/@dice-roller/rpg-dice-roller">npm</a></li>
+  <li>SealDice：<a href="https://github.com/sealdice/sealdice-core">github.com/sealdice/sealdice-core</a> · 接入(OneBot 反向 WS) <a href="https://docs.sealdice.com/deploy/platform-qq.html">docs.sealdice.com/deploy/platform-qq</a></li>
+  <li>OneBot v11 反向 WS 标准：<a href="https://github.com/botuniverse/onebot-11">github.com/botuniverse/onebot-11</a></li>
+  <li>Avrae：<a href="https://github.com/avrae/avrae">github.com/avrae/avrae</a> · <a href="https://avrae.io/">avrae.io</a></li>
+</ul>
+
+</div>
+</body>
+</html>
