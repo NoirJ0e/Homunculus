@@ -58,14 +58,14 @@ TS 引擎（v2 主体）= 进程内 MCP 工具裁判 + 共享状态
  ├─ 确定性核心：场景/在场、屏障/简化战斗轮（"节奏闸"坍缩进此处）、git 分支/canonicity、路由
  ├─ 廉价两段唤醒闸（拉起 NPC 前判"有话说吗"）
  └─ 记忆库：两层（常驻人格核心 + 情节召回），分支感知
-        │ 端口
+        │ DicePort（端口）
         ▼
-SealDice（Go 边车，HTTP/IPC）
- └─ 角色卡 + 骰子 + 按系统(DND/COC)规则的唯一写权威；DM 只读（无 write_card 工具）
+机械域 = BCDice（进程内库，实现 DicePort；ADR-0013，取代 SealDice 边车）
+ └─ 按系统(COC7/DND5e)规则的结构化判定权威；**卡仍归我们**(CardStore)，BCDice 只判定不拥有卡；DM 只读（无 write_card 工具）。NativeDice 为同端口的离线/测试回退。
 ```
 
-- **技术栈与骰子集成**：TS 主体 + SealDice Go 边车。见 [ADR-0001]。
-- **共治与纯叙事**：玩家/NPC 纯叙事；AIDM 独写状态；骰子是显式 SealDice 命令的口子。落地为工具权限（NPC 无 narrate/推进权；DM 对卡只读）。见 [ADR-0002]、[ADR-0009]。
+- **技术栈与骰子集成**：TS 主体 + BCDice 进程内库实现 `DicePort`（ADR-0013，修订 ADR-0001 的 SealDice 边车）。`NativeDice` 为回退。
+- **共治与纯叙事**：玩家/NPC 纯叙事；AIDM 独写状态；掷骰是显式口子——人类用 `/check`/`/roll` slash 命令亲手投，NPC agent 用 `roll` 工具（每个 actor 自己扣扳机，无 AIDM 代掷；ADR-0013）。落地为工具权限（NPC 无 narrate/推进权；DM 对卡只读）。见 [ADR-0002]、[ADR-0009]、[ADR-0013]。
 - **Agent SDK 驱动 + 引擎即 MCP 裁判**：DM 自驱、NPC 引擎带节奏；引擎能力=进程内 MCP 工具；复用订阅鉴权。见 [ADR-0009]。
 - **节奏模型**：简化战斗轮（后手看前手 + 真人是闸 + 溢出一轮即暂停）。见 [ADR-0003]。
 - **持久灵魂与 canonicity**：git fork/merge 模型；两层记忆；人格全演化 + 护栏。见 [ADR-0004]。
