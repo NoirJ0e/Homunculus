@@ -86,11 +86,39 @@ export type AwaitOutcome =
   | { readonly status: "released"; readonly posts: readonly Post[]; readonly events: readonly AwaitEvent[] }
   | { readonly status: "held"; readonly pause: PauseState; readonly events: readonly AwaitEvent[] };
 
+/**
+ * A fully serializable snapshot of a Referee's playable state at one beat.
+ *
+ * ADR-0003: an indefinite hold IS the pause/save state. This object captures
+ * everything needed to rebuild a Referee that can continue from the same beat
+ * after a process restart. It is intentionally a plain record — no methods,
+ * JSON-round-trippable, storable to `data/campaigns/<id>/pause.json`.
+ *
+ * Fields captured:
+ * - `aidmId`         — the configured AIDM actor (informational; restore callers
+ *                      pass it back via `RefereeDeps`).
+ * - `sceneMembership`— every scene → member list (visibility state).
+ * - `sceneLog`       — the full ordered post log (the omniscient record).
+ * - `pendingChecks`  — checks the DM called but no one has rolled yet.
+ * - `cursor`         — milestone cursor (null when no campaign loaded).
+ * - `clocks`         — world clock states (position + spec).
+ * - `pauseState`     — the last barrier hold state (null when not paused).
+ */
+export interface RefereeSnapshot {
+  readonly aidmId: ActorId;
+  readonly sceneMembership: Record<string, readonly ActorId[]>;
+  readonly sceneLog: readonly import("../domain/post.js").Post[];
+  readonly pendingChecks: readonly CheckCall[];
+  readonly cursor: MilestoneCursorState | null;
+  readonly clocks: readonly WorldClockState[];
+  readonly pauseState: PauseState | null;
+}
+
 export class Referee {
   private readonly scenes = new SceneBook();
   /** Scene-scoped visibility is active once any membership is configured. Until
    *  then the engine is single-scene / all-visible (the walking-skeleton mode). */
-  private readonly scoped: boolean;
+  private scoped: boolean;
   /** Checks the DM has called (喊检定) but no one has rolled yet, keyed by the
    *  actor who must roll. An actor may only resolve ITS OWN pending entry. */
   private readonly pendingChecks = new Map<ActorId, CheckCall>();
@@ -98,6 +126,8 @@ export class Referee {
   private cursor: MilestoneCursorState | null = null;
   /** The campaign's world clocks, keyed by id; advanced via `advanceClock`. */
   private readonly clocks = new Map<string, WorldClockState>();
+  /** The last barrier hold state, updated on every held `await_actors`. */
+  private lastPause: PauseState | null = null;
 
   constructor(private readonly deps: RefereeDeps) {
     const config = deps.scenes ?? {};
@@ -113,6 +143,79 @@ export class Referee {
         this.clocks.set(spec.id, initClock(spec));
       }
     }
+  }
+
+  /**
+   * Capture the full playable state as a plain, JSON-serializable snapshot.
+   * No I/O — pure extraction from in-memory state. Suitable for persisting to
+   * `data/campaigns/<id>/pause.json` via the file-store adapter layer.
+   */
+  snapshot(): RefereeSnapshot {
+    return {
+      aidmId: this.deps.aidmId,
+      sceneMembership: this.scenes.membershipSnapshot(),
+      sceneLog: [...this.scenes.fullLog()],
+      pendingChecks: [...this.pendingChecks.values()].map((c) => ({ ...c })),
+      cursor: this.cursor ? { ...this.cursor } : null,
+      clocks: [...this.clocks.values()].map((c) => ({ ...c })),
+      pauseState: this.lastPause ? { ...this.lastPause } : null,
+    };
+  }
+
+  /**
+   * Rebuild a Referee from a previously captured snapshot (e.g. after process
+   * restart). The caller supplies fresh I/O deps (substrate, humanInbox, npc,
+   * etc.); only pure playable state is rehydrated from the snapshot. The
+   * campaign dep is needed if cursor/clocks are to be meaningful; if omitted
+   * the cursor and clocks are still restored from the snapshot's raw values.
+   *
+   * The returned Referee is ready to continue from the same beat — same scene
+   * membership, same full log (horizon is correct), same pending checks.
+   */
+  static restore(deps: RefereeDeps, snap: RefereeSnapshot): Referee {
+    // Omit `scenes` entirely so the constructor's scene-init path is skipped;
+    // we rebuild membership from the snapshot below. `exactOptionalPropertyTypes`
+    // prohibits explicit `undefined`, so we destructure it out instead.
+    const { scenes: _omit, ...depsWithoutScenes } = deps;
+    const ref = new Referee(depsWithoutScenes);
+
+    // Restore scene membership (skip the constructor's scenes config path —
+    // we directly call addMember to mirror the exact saved membership).
+    for (const [scene, members] of Object.entries(snap.sceneMembership)) {
+      for (const member of members) {
+        ref.scenes.addMember(scene as SceneId, member as ActorId);
+      }
+    }
+
+    // If the snapshot had any scene membership, the referee is scene-scoped.
+    if (Object.keys(snap.sceneMembership).length > 0) {
+      ref.scoped = true;
+    }
+
+    // Restore the full scene log — every post in order, re-recorded into the
+    // SceneBook so horizon() and fullLog() return the right results.
+    for (const post of snap.sceneLog) {
+      ref.scenes.record(post);
+    }
+
+    // Restore pending checks.
+    for (const c of snap.pendingChecks) {
+      ref.pendingChecks.set(c.actor, { ...c });
+    }
+
+    // Restore cursor and clocks (override what the constructor initialised from
+    // the campaign dep — the snapshot's values are the authoritative runtime
+    // state and may differ from initCursor/initClock defaults).
+    ref.cursor = snap.cursor ? { ...snap.cursor } : null;
+    ref.clocks.clear();
+    for (const clock of snap.clocks) {
+      ref.clocks.set(clock.id, { ...clock });
+    }
+
+    // Restore the last pause state.
+    ref.lastPause = snap.pauseState ? { ...snap.pauseState } : null;
+
+    return ref;
   }
 
   /**
@@ -259,6 +362,7 @@ export class Referee {
 
     if (round.status === "held") {
       events.push({ kind: "beat-held" });
+      this.lastPause = round.pause ?? null;
       return { status: "held", pause: round.pause!, events };
     }
     events.push({ kind: "barrier-released" });
