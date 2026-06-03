@@ -44,16 +44,30 @@ export function renderLegality(legality: CampaignLegality): string {
   return lines.length > 0 ? lines.join("\n") : "（无显式合法性约束）";
 }
 
-/** Render the card under review into a prompt-safe block. */
+/** Render the card under review into a prompt-safe block, surfacing the
+ *  structured per-system fields (#43) so the gate can judge system-fit on the
+ *  actual mechanical structure — a CoC7 sheet that carries a race/class, or a
+ *  D&D5e card whose level sits outside the band, becomes visible here. */
 export function renderCard(card: VerifiableCard): string {
   const p = card.soul.personaCore;
-  return [
+  const s = card.sheet;
+  const lines = [
     `名字：${p.name}`,
     `性格：${p.temperament}`,
     `目标：${p.goals.join("、") || "（未填）"}`,
-    `数值系统：${card.sheet.system}`,
-    `技能：${JSON.stringify(card.sheet.skills)}`,
-  ].join("\n");
+    `数值系统：${s.system}`,
+  ];
+  if (s.occupation !== undefined) lines.push(`职业(occupation)：${s.occupation}`);
+  if (s.race !== undefined) lines.push(`种族：${s.race}`);
+  if (s.characterClass !== undefined) lines.push(`职业(class)：${s.characterClass}`);
+  if (s.level !== undefined) lines.push(`等级：${s.level}`);
+  if (s.attributes !== undefined) lines.push(`属性：${JSON.stringify(s.attributes)}`);
+  lines.push(`技能：${JSON.stringify(s.skills)}`);
+  if (s.proficiencies !== undefined && s.proficiencies.length > 0) {
+    lines.push(`熟练项：${s.proficiencies.join("、")}`);
+  }
+  if (s.sanity !== undefined) lines.push(`理智(SAN)：${s.sanity}`);
+  return lines.join("\n");
 }
 
 /** Build the one-shot verifier adjudication prompt (provenance-agnostic). */
@@ -66,6 +80,11 @@ export function buildVerifierPrompt(card: VerifiableCard, legality: CampaignLega
     "- `coc7`（克苏鲁的呼唤 7 版）：角色是【凡人调查员】——只有职业(occupation) + 属性 + 技能，【没有种族、没有职业职业(class)、没有等级、没有奇幻种族/魔法专精】。出现「半精灵」「游侠/法师等职业」「兽人」「等级」「法术位」这类 D&D 构造 → 一律 FAIL，反馈让玩家改成符合 CoC7 的 1920s 凡人调查员。",
     "- `dnd5e`（龙与地下城 5 版）：才有种族 + 职业 + 等级；按 levelBand 控制强度。",
     "- 即使基调是「克系恐怖」，只要系统是 dnd5e，半精灵游侠也合法（克系是风味，不是系统）。判系统，不判基调。",
+    "",
+    "【还要校验机械卡的结构完整性与系统契合】：",
+    "- `coc7` 的卡应有 职业(occupation) + 属性 + 技能(技能%)；缺这些结构、或带了 种族/职业(class)/等级 这类 D&D 字段 → FAIL。",
+    "- `dnd5e` 的卡应有 种族 + 职业(class) + 等级 + 属性(六维) + 熟练项；等级须落在 levelBand 内；缺关键结构 → FAIL。",
+    "- 只看下面【待审角色卡】里给出的结构化字段判断，按缺失/越界逐条反馈改法。",
     "",
     "【权威合法性】",
     renderLegality(legality),

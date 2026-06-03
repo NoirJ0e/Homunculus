@@ -11,6 +11,7 @@ import {
   buildVerifierPrompt,
   parseRevisedCard,
   parseVerdict,
+  renderCard,
   renderLegality,
 } from "../src/adapters/agent-sdk/card-verifier-prompt.js";
 
@@ -66,6 +67,49 @@ describe("verifier prompt", () => {
     expect(p).toContain("种族");
     // …and that the rule SYSTEM, not the tone/genre, decides legal options.
     expect(p).toContain("判系统，不判基调");
+  });
+
+  test("renders a CoC7 card's structured fields (occupation / characteristics / sanity)", () => {
+    const out = renderCard({
+      soul: createSoul(actorId("p1"), { name: "莉莉", temperament: "冷静" }),
+      sheet: {
+        system: "coc7",
+        occupation: "记者",
+        attributes: { 力量: 50, 教育: 75 },
+        skills: { 侦查: 60 },
+        sanity: 60,
+      },
+    });
+    expect(out).toContain("记者"); // occupation surfaced for legality judging
+    expect(out).toContain("教育"); // characteristics surfaced
+    expect(out).toContain("理智"); // sanity labelled
+  });
+
+  test("renders a D&D5e card's structured fields (race / class / level / abilities / proficiencies)", () => {
+    const out = renderCard({
+      soul: createSoul(actorId("h1"), { name: "Borr", temperament: "鲁莽" }),
+      sheet: {
+        system: "dnd5e",
+        race: "半精灵",
+        characterClass: "游侠",
+        level: 3,
+        attributes: { 力量: 15, 敏捷: 14 },
+        proficiencies: ["运动", "察觉"],
+        skills: {},
+      },
+    });
+    expect(out).toContain("半精灵"); // race surfaced → verifier can judge vs system/levelBand
+    expect(out).toContain("游侠");
+    expect(out).toContain("3"); // level
+    expect(out).toContain("运动"); // proficiency
+  });
+
+  test("instructs the model to check structured completeness + system-fit of the sheet", () => {
+    const p = buildVerifierPrompt(card, { system: "coc7", bespokeRules: {}, exceptions: [] });
+    // The gate must validate the structured sheet, not just persona prose.
+    expect(p).toContain("结构");
+    // coc7 needs occupation + characteristics + skill%; dnd5e needs abilities/level.
+    expect(p).toMatch(/职业.*属性|属性.*技能/);
   });
 });
 

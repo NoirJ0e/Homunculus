@@ -3,7 +3,8 @@ import { actorId, campaignId } from "../../src/domain/ids.js";
 import { CardCreationSession } from "../../src/runtime/card-creation-session.js";
 import type { DiscordClient, SentMessage } from "../../src/adapters/discord/discord-substrate.js";
 import {
-  DEFAULT_COC7_SHEET,
+  STANDARD_COC7_SHEET,
+  STANDARD_DND5E_SHEET,
   holdInitialDrafts,
   postCardAssistantText,
 } from "../../src/runtime/card-creation.js";
@@ -62,18 +63,24 @@ describe("postCardAssistantText", () => {
 });
 
 describe("holdInitialDrafts", () => {
-  test("holds a PENDING soul + sheet draft on the session", () => {
+  test("holds a PENDING soul + the structured sheet for the campaign's system", () => {
     const session = makeSession();
     expect(session.drafts).toEqual({ status: "pending" });
 
-    holdInitialDrafts(session, { name: "Alice", temperament: "好奇而审慎" });
+    holdInitialDrafts(session, { name: "Alice", temperament: "好奇而审慎" }, "coc7");
 
     const drafts = session.drafts;
     expect(drafts.status).toBe("pending");
     expect(drafts.soul?.id).toBe(actorId("p-alice"));
     expect(drafts.soul?.personaCore.name).toBe("Alice");
     expect(drafts.soul?.personaCore.temperament).toBe("好奇而审慎");
-    // v1 stat generation: the flagged baseline template (see module doc).
-    expect(drafts.sheet).toEqual(DEFAULT_COC7_SHEET);
+    // Structured baseline matching the campaign system (#43).
+    expect(drafts.sheet).toEqual(STANDARD_COC7_SHEET);
+  });
+
+  test("a dnd5e campaign holds the structured D&D5e sheet, not a CoC7 one", () => {
+    const session = makeSession();
+    holdInitialDrafts(session, { name: "Borr", temperament: "鲁莽" }, "dnd5e");
+    expect(session.drafts.sheet).toEqual(STANDARD_DND5E_SHEET);
   });
 });

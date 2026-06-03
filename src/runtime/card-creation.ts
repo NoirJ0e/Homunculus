@@ -18,55 +18,62 @@ import type { CardCreationSession } from "./card-creation-session.js";
  *     soul + sheet draft held ON THE SESSION (not bound to any store — binding
  *     is verify-pass, #35).
  *
- * v1 STAT GENERATION — FLAGGED SIMPLIFICATION:
- *   The mechanical sheet draft is a single fixed COC7 baseline template
- *   ({@link DEFAULT_COC7_SHEET}) rather than rolled / assistant-proposed / point-
- *   buy values. ADR-0012's plan explicitly leaves the open-card stat-generation
- *   detail (模板 vs 系统掷骰 vs 手填) undecided for this slice, and ADR-0001 has the
- *   whole mechanical-values domain eventually carved out to SealDice. So we hold
- *   the simplest defensible default and flag it; tightening (roll/point-buy) and
- *   the verify-bind promotion are downstream (#35).
+ * STAT GENERATION (#43, ADR-0013):
+ *   The mechanical sheet is now a STRUCTURED per-system baseline carrying exactly
+ *   what the BCDice judge needs — CoC7 occupation + 八大属性 + skill%; D&D5e
+ *   race/class/level + six ability scores + proficiencies. The values are a sane
+ *   standard build (CoC7 baseline percentiles; D&D5e standard array); the live
+ *   open-card assistant personalises them in-conversation (the HITL layer wired
+ *   at the live check loop, #44). Cards stay ours — BCDice judges, never owns.
  */
 
 /** The persona "开卡向导" under which open-card assistant replies are posted. */
 export const CARD_ASSISTANT_PERSONA = "开卡向导";
 
 /**
- * v1 flagged baseline sheet — a flat COC7 skill template. Placeholder until the
- * stat-generation decision lands (see module doc / ADR-0012 plan留白; ADR-0001).
+ * Structured CoC7 baseline — a 1920s mortal investigator: occupation + the eight
+ * characteristics + occupation-flavoured skill percentages + sanity. NO race/
+ * class/level (those are D&D constructs the verifier rejects under coc7).
  */
-export const DEFAULT_COC7_SHEET: CharacterSheet = {
+export const STANDARD_COC7_SHEET: CharacterSheet = {
   system: "coc7",
+  occupation: "记者",
+  attributes: { 力量: 50, 体质: 55, 体型: 60, 敏捷: 65, 外貌: 55, 智力: 70, 意志: 60, 教育: 75 },
   skills: {
-    侦查: 25,
-    聆听: 20,
-    图书馆使用: 20,
-    话术: 5,
-    闪避: 30,
+    侦查: 60,
+    聆听: 55,
+    图书馆使用: 60,
+    话术: 50,
+    闪避: 35,
     斗殴: 25,
+    母语: 75,
   },
+  sanity: 60,
 };
 
 /**
- * v1 flagged baseline sheet for D&D 5e — a standard-array ability spread.
- * Placeholder like {@link DEFAULT_COC7_SHEET} (SealDice owns the real sheet,
- * ADR-0001); its job here is only to make the card's `system` MATCH the
- * campaign's so the verifier's system-fit check doesn't falsely reject.
+ * Structured D&D5e baseline — a level-1 build: race + class + the standard array
+ * across the six abilities + proficient saves/skills. The BCDice adapter (#42)
+ * folds ability modifier + proficiency bonus into the `±mod` it sends BCDice.
  */
-export const DEFAULT_DND5E_SHEET: CharacterSheet = {
+export const STANDARD_DND5E_SHEET: CharacterSheet = {
   system: "dnd5e",
-  skills: { 力量: 15, 敏捷: 13, 体质: 14, 智力: 10, 感知: 12, 魅力: 8 },
-  modifiers: { 力量: 2, 敏捷: 1, 体质: 2, 智力: 0, 感知: 1, 魅力: -1 },
+  race: "人类",
+  characterClass: "战士",
+  level: 1,
+  attributes: { 力量: 15, 敏捷: 14, 体质: 13, 智力: 12, 感知: 10, 魅力: 8 },
+  proficiencies: ["力量豁免", "体质豁免", "运动", "察觉"],
+  skills: {},
 };
 
 /**
- * The v1 placeholder baseline sheet matching a campaign's rule SYSTEM. The
- * open-card assistant doesn't yet emit a structured sheet, so this is the
- * fallback — keyed by system so a card in a dnd5e campaign isn't stuck with a
- * CoC7 sheet (which the verifier would rightly reject as system-incompatible).
+ * The structured baseline sheet matching a campaign's rule SYSTEM — keyed by
+ * system so a card in a dnd5e campaign isn't stuck with a CoC7 sheet (which the
+ * verifier would rightly reject as system-incompatible). The live assistant
+ * personalises it; this is the structurally-complete starting point.
  */
 export function defaultSheetFor(system: DiceSystem): CharacterSheet {
-  return system === "dnd5e" ? DEFAULT_DND5E_SHEET : DEFAULT_COC7_SHEET;
+  return system === "dnd5e" ? STANDARD_DND5E_SHEET : STANDARD_COC7_SHEET;
 }
 
 /**
@@ -85,10 +92,15 @@ export async function postCardAssistantText(
 /**
  * Hold a PENDING soul + sheet draft on the session from a settled persona
  * concept. The soul takes the session's actor id (so verify-bind, #35, can save
- * it under the right actor); the sheet is the v1 flagged baseline. Nothing is
- * persisted here — the drafts live on the session until verify-pass.
+ * it under the right actor); the sheet is the structured baseline for the
+ * campaign's rule SYSTEM (so a dnd5e card isn't born with a CoC7 sheet). Nothing
+ * is persisted here — the drafts live on the session until verify-pass.
  */
-export function holdInitialDrafts(session: CardCreationSession, persona: PersonaSeed): void {
+export function holdInitialDrafts(
+  session: CardCreationSession,
+  persona: PersonaSeed,
+  system: DiceSystem,
+): void {
   session.holdSoulDraft(createSoul(session.actorId, persona));
-  session.holdSheetDraft(DEFAULT_COC7_SHEET);
+  session.holdSheetDraft(defaultSheetFor(system));
 }
