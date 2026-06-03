@@ -32,6 +32,10 @@ PRD#2 选型调研（`docs/research/dice-engine-options.html`）的实测发现�
 ## 后果
 
 - 新增 `src/adapters/dice/`（如 `bcdice-dice.ts`）：`SealDicePort` 实现，封 `bcdice` 库的系统加载 + 指令求值 + 结构化解析。BCDice 的指令语法（`CC<=`、系统特定）被**封在适配器内**，引擎/AIDM 仍只调 `SealDicePort.callCheck/roll`。`NativeDice` 保留为回退/测试。
+- **掷骰触发面 = 命令面，不是聊天命令**。SealDice 的 `.r`/`.ra` 是「频道里第二个 bot 拦截文字消息掷骰」；BCDice 是进程内库、**不看 chat**，所以 `.r`/`.ra` 这套消失。两条路：
+  - **隐式（常态）**：玩家用自由文字声明动作 → AIDM 判定需检定 → 调引擎 `call_check` → 该 actor 投 → BCDice 结算 → AIDM 叙事。玩家不需学任何骰子语法。
+  - **显式（`.ra` 的忠实替身）= `/check <skill>` / `/roll <expr>` slash 命令**。掷骰是控制动作，归 slash 控制面（[ADR-0012]：自由文字=内容、slash=控制）；**不复用 `.`-前缀文字**——那会在内容流里再开一个魔法前缀（`(` 已是 OOC），并请回我们刚否决的「解析自然语言式命令」的脆弱耦合。
+- **统一原则：每个 actor 自己扣自己的扳机**。投骰子的 tactile 时刻是 TTRPG 精髓,**不做 AIDM 代掷**。人类走 `/check` slash（套在既有 `roll` 语义上的人类面），NPC agent 走它的 `roll` 工具；referee 已强制「`roll` 只结算调用者自己的待掷」，无「代掷」特例。沉默的人类玩家**不被代掷**,而是落进 [ADR-0003] 屏障语义（溢出一轮 → hang = 暂停/存档），保留精髓不被绕过。`/check` 是 PRD#2 A 支柱在 BCDice spike 之后第一个要接的 live 件。
 - **开卡向导要产「按系统的结构化卡」**（BCDice 判定需要卡值）：CoC7 = 职业 + 技能%；D&D5e = 种族/职业/等级/属性/熟练。审卡官（[ADR-0012] 已系统感知）校验之。
 - **[ADR-0001] 的「机械域割给 SealDice + branch-snapshot 卡垫片」作废**：机械判定改 BCDice；卡归我们，所以 canonicity（git fork/merge/discard，PRD#2 之外）直接管我们的卡存储，**不需要 SealDice 卡垫片**（`CardShimPort` 随之失去存在理由，后续清理）。
 - 新增 npm 依赖 `bcdice`（MIT，官方维护）。spike 通过后正式接；不通过则按系统回退。
