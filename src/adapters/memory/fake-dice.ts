@@ -1,10 +1,10 @@
-import type { SealDicePort, RollRequest, RollResult } from "../../ports/sealdice.js";
+import type { DicePort, RollRequest, RollResult } from "../../ports/dice.js";
 
 /**
  * Scripted in-memory dice authority: returns pre-canned results in order, so
- * tests stay deterministic without a real SealDice sidecar. Records requests.
+ * tests stay deterministic without a real dice authority. Records requests.
  */
-export class FakeSealDice implements SealDicePort {
+export class FakeDice implements DicePort {
   private readonly results: RollResult[];
   readonly requests: RollRequest[] = [];
 
@@ -16,7 +16,7 @@ export class FakeSealDice implements SealDicePort {
     this.requests.push(req);
     const result = this.results.shift();
     if (!result) {
-      throw new Error(`FakeSealDice: no scripted result left for "${req.skill}"`);
+      throw new Error(`FakeDice: no scripted result left for "${req.skill}"`);
     }
     return result;
   }

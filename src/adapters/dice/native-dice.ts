@@ -1,10 +1,10 @@
-import type { SealDicePort, RollRequest, RollResult } from "../../ports/sealdice.js";
+import type { DicePort, RollRequest, RollResult } from "../../ports/dice.js";
 import type { CardStore } from "../../ports/card-store.js";
 
 /**
  * NativeDice — the v1 TS-native dice/judge (ADR-0001 修订). It implements the
- * {@link SealDicePort} abstraction (the boundary is kept) but resolves checks
- * itself in TypeScript instead of delegating to a SealDice sidecar.
+ * {@link DicePort} abstraction (the boundary is kept) but resolves checks
+ * itself in TypeScript instead of delegating to an external dice authority.
  *
  * Purely deterministic: all randomness flows through an injected `rng: () =>
  * number` returning [0,1). No `Math.random`, no clock, no network — tests pass
@@ -14,7 +14,7 @@ import type { CardStore } from "../../ports/card-store.js";
  * This lives in an adapter ring (not the engine) precisely because concrete
  * mechanics live here; the engine only depends on the port.
  */
-export class NativeDice implements SealDicePort {
+export class NativeDice implements DicePort {
   constructor(
     private readonly cards: CardStore,
     private readonly rng: () => number,

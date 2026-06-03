@@ -5,7 +5,7 @@ import { FakeCardStore } from "../src/adapters/memory/fake-card-store.js";
 import { Referee } from "../src/engine/referee.js";
 import { FakeSubstrate } from "../src/adapters/memory/fake-substrate.js";
 import { FakeNpc } from "../src/adapters/memory/fake-npc.js";
-import { FakeSealDice } from "../src/adapters/memory/fake-sealdice.js";
+import { FakeDice } from "../src/adapters/memory/fake-dice.js";
 import { runDmToolFlow } from "../src/adapters/memory/fake-tool-flow.js";
 import { dmTools, npcTools } from "../src/adapters/agent-sdk/engine-mcp.js";
 
@@ -91,7 +91,7 @@ describe("check flow — DM calls, the called character rolls its own pending", 
   test("call_check registers a pending; an NPC roll resolves it via dice into the transcript", async () => {
     const substrate = new FakeSubstrate();
     const npc = new FakeNpc({ "inv-1": [{ kind: "roll" }] });
-    const dice = new FakeSealDice([
+    const dice = new FakeDice([
       { actorId: inv, skill: "侦查", total: 37, success: true, detail: "d100=37 ≤ 60 侦查 → 成功" },
     ]);
     const referee = new Referee({ aidmId: actorId("aidm"), substrate, npc, dice });
@@ -130,7 +130,7 @@ describe("check flow — DM calls, the called character rolls its own pending", 
   test("a character cannot roll a check that isn't its own pending → stays a pass, no dice call", async () => {
     const substrate = new FakeSubstrate();
     const npc = new FakeNpc({ "inv-1": [{ kind: "roll" }] });
-    const dice = new FakeSealDice([]); // would throw if called
+    const dice = new FakeDice([]); // would throw if called
     const referee = new Referee({ aidmId: actorId("aidm"), substrate, npc, dice });
 
     // No call_check for inv-1: the roll has nothing of its own to resolve.

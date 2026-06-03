@@ -37,7 +37,7 @@ v1 是 Python。v2 重构需要定主体语言；并需要一套骰子 + 按系�
 
 **修订决策**：
 - **v1 骰子用 TS 原生实现**：在 TS 引擎内实现 DND5e/COC7 的检定语义（`.ra <技能>` → 对卡判定 → 结构化结果）。角色卡的机械数值 v1 也先放我们自己的 SoulStore，不引入 SealDice 双头权威。
-- SealDicePort 的**抽象边界保留**（端口仍在），但 v1 的实现是 TS 原生 `NativeDice`，不是 SealDice 边车。
+- 骰子端口的**抽象边界保留**（端口仍在；当时名 `SealDicePort`，PRD#2 起更名 `DicePort`，见 [ADR-0013]），但 v1 的实现是 TS 原生 `NativeDice`，不是 SealDice 边车。
 - **接真 SealDice 延后**：等多智能体核心验证后再决定是否值得；届时正路是边车 import `dicescript` + 注入我们持有的属性，或 OneBot 假装适配器——而非已删的 `POST /roll` 设想。
 - 由此 [ADR-0002] "骰子是 SealDice 唯一写权威" 在 v1 暂由 TS 原生骰子承担"唯一机械裁决口子"的角色；语义不变（角色只发检定意图、引擎/骰子裁决），只是实现换人。
 
