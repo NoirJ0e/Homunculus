@@ -12,7 +12,33 @@ import type { ActorId } from "../domain/ids.js";
 export interface RollRequest {
   readonly actorId: ActorId;
   readonly skill: string;
+  /**
+   * Difficulty band or target number.
+   * - CoC7: "hard" | "extreme" (collapses the success threshold).
+   * - D&D5e: a DC or AC as a string like "dc15" or "15"; parsed as a number.
+   *   Default 10 when absent. For attacks this is the target AC.
+   */
   readonly difficulty?: string;
+
+  // ── D&D5e-specific fields (#42). All optional; ignored for CoC7. ──
+
+  /**
+   * Roll mode for D&D5e:
+   * - "check"  (default) → ability check via BCDice `AR±mod>=DC`
+   * - "attack"           → attack roll via BCDice `AT±mod>=AC`
+   *
+   * When absent, treated as "check".
+   */
+  readonly mode?: "check" | "attack";
+
+  /**
+   * Advantage / disadvantage for D&D5e:
+   * - "advantage"    → roll 2d20, take the higher (BCDice `A` suffix)
+   * - "disadvantage" → roll 2d20, take the lower  (BCDice `D` suffix)
+   *
+   * When absent, a straight roll is used.
+   */
+  readonly advantage?: "advantage" | "disadvantage";
 }
 
 export interface RollResult {
