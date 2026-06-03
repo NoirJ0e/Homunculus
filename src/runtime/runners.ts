@@ -206,6 +206,12 @@ export function makeRunners(deps: RunnerDeps): Runners {
     // and NPC rolls resolve real dice; without it a roll stays a pass.
     const dice = deps.makeDice?.(campaign);
 
+    // #45 — the registered bible carries the plot spine (milestones + world
+    // clocks, ADR-0007). Passing it as `campaign` makes the live Referee track a
+    // per-branch milestone cursor + the world clocks, so the AIDM's
+    // advance_milestone / discover_lead / advance_clock tools act on real state.
+    const bible = campaignStore.get(campaign);
+
     const referee = new Referee({
       aidmId: aidm,
       substrate,
@@ -213,6 +219,7 @@ export function makeRunners(deps: RunnerDeps): Runners {
       roster,
       ...(npc !== undefined && { npc }),
       ...(dice !== undefined && { dice }),
+      ...(bible !== undefined && { campaign: bible }),
     });
 
     // #44 — register this channel's live AIDM session so the `/check` handler can
@@ -225,7 +232,6 @@ export function makeRunners(deps: RunnerDeps): Runners {
     });
     teardowns.set(ctx.channelId, () => deps.checkSessions?.delete(ctx.channelId));
 
-    const bible = campaignStore.get(campaign);
     const campaignBrief = bible
       ? buildCampaignBrief(bible)
       : `战役 ${ctx.routing.campaign}：未登记战役语境，按通用开场处理。`;

@@ -44,7 +44,8 @@ export function dmQueryStream(referee: Referee, systemPrompt: string): AsyncIter
     prompt:
       "开始主持这场牌局：先用 narrate 发一段开场叙事，再用 await_actors 抛屏障等在场者回应；收齐后继续 narrate 推进。" +
       "当某个角色的行动需要机械结算（检定/攻击）时，用 call_check 对该角色喊检定（声明技能、难度=DC、mode），" +
-      "然后照常 await_actors——由该角色自己用 /check 掷骰，你不要替他掷。",
+      "然后照常 await_actors——由该角色自己用 /check 掷骰，你不要替他掷。" +
+      "循着剧情脊柱推进：抵达一个里程碑就 advance_milestone，撒线索时 discover_lead；玩家拖延/原地打转时 advance_clock 让世界时钟走，并用越来越明显的软引力（线索→NPC→世界自走）隐形把大方向拽回。",
     options: {
       systemPrompt,
       mcpServers: { engine: createDmMcpServer(referee) },
@@ -55,6 +56,12 @@ export function dmQueryStream(referee: Referee, systemPrompt: string): AsyncIter
         // trigger via `/check`, the NPC via its own `roll`. The AIDM never
         // auto-rolls (ADR-0013); a silent human holds the barrier (ADR-0003).
         "mcp__engine__call_check",
+        // #45 — the plot spine (ADR-0007). The AIDM steers toward the next
+        // milestone, drops leads, and on player delay advances the hidden world
+        // clock (soft gravity) — all in-fiction; players never see clock digits.
+        "mcp__engine__advance_milestone",
+        "mcp__engine__discover_lead",
+        "mcp__engine__advance_clock",
       ],
       permissionMode: "bypassPermissions",
     },

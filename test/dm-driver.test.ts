@@ -82,4 +82,15 @@ describe("#20 buildDmSystemPrompt — pure prompt assembly", () => {
     expect(prompt).toContain("narrate");
     expect(prompt).toContain("await_actors");
   });
+
+  test("instructs the AIDM to steer the plot spine toward milestones (#45)", () => {
+    const prompt = buildDmSystemPrompt({ brief: "x", sceneId: "s", cast: [] });
+    // The three spine tools must be named so the AIDM advances toward a climax…
+    expect(prompt).toContain("advance_milestone");
+    expect(prompt).toContain("discover_lead");
+    expect(prompt).toContain("advance_clock");
+    // …and the world clock must be hidden from players (soft gravity, ADR-0007).
+    expect(prompt).toContain("软引力");
+    expect(prompt).toContain("玩家永远看不到刻度");
+  });
 });
