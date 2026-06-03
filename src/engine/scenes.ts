@@ -52,4 +52,16 @@ export class SceneBook {
   fullLog(): readonly Post[] {
     return this.log;
   }
+
+  /**
+   * A serializable snapshot of the full membership state: every scene and its
+   * current member list, suitable for JSON serialization and restore.
+   */
+  membershipSnapshot(): Record<SceneId, ActorId[]> {
+    const out: Record<string, ActorId[]> = {};
+    for (const [scene, members] of this.members.entries()) {
+      out[scene] = [...members];
+    }
+    return out as Record<SceneId, ActorId[]>;
+  }
 }
