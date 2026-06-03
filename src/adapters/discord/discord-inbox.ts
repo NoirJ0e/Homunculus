@@ -16,7 +16,7 @@
  *
  *   starts with ".ra" (case-insensitive)     → { kind: "roll" }
  *     Used when the engine has called a check and the human types `.ra <skill>`
- *     to resolve it via the SealDice sidecar.
+ *     to resolve it via the dice authority (BCDice, ADR-0013).
  *
  *   exactly "pass" or "pass你们继续"
  *   (trimmed, case-insensitive)              → { kind: "pass" }

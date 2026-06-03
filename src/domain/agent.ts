@@ -26,7 +26,7 @@ export type SceneEffect =
 
 /**
  * A check the AIDM calls for (喊检定): a specific actor rolls a skill at a
- * difficulty band. The AIDM only calls it — SealDice resolves and is the sole
+ * difficulty band. The AIDM only calls it — the dice authority resolves and is the sole
  * writer of the sheet (ADR-0001/0002); the character emits the actual `.ra`.
  */
 export interface CheckCall {

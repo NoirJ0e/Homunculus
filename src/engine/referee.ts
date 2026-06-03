@@ -4,7 +4,7 @@ import type { TurnContext, CheckCall } from "../domain/agent.js";
 import type { SubstratePort } from "../ports/substrate.js";
 import type { NpcPort } from "../ports/npc.js";
 import type { HumanInboxPort } from "../ports/human-inbox.js";
-import type { SealDicePort } from "../ports/sealdice.js";
+import type { DicePort } from "../ports/dice.js";
 import type { CardStore, CharacterSheet } from "../ports/card-store.js";
 import { SceneBook } from "./scenes.js";
 import type { Roster, ActorKind } from "./roster.js";
@@ -48,7 +48,7 @@ export interface RefereeDeps {
   /** Soul→controller bindings (ADR-0006); supersedes `roster` and adds `inert`. */
   readonly controllers?: ControllerRegistry;
   /** The dice/judge authority — resolves called checks (ADR-0001 修订, v1 = NativeDice). */
-  readonly dice?: SealDicePort;
+  readonly dice?: DicePort;
   /** Read-only mechanical sheets — the DM reads via `read_card` (ADR-0001/0002). */
   readonly cards?: CardStore;
   /** The plot spine (ADR-0007). When present, the referee tracks a per-branch

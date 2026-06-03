@@ -2,11 +2,11 @@
 
 - 状态：Accepted
 - 日期：2026-06-02
-- 关系：**修订 [ADR-0001]**（其决策为"骰子 v1 用 TS 原生、机械域整块割给 SealDice Go 边车、写 branch-snapshot 卡垫片"）。复用 [ADR-0001] 早已留出的 `SealDicePort` 边界（`NativeDice` 已实现它）——本 ADR 只换端口背后的实现 + 卡归属，引擎/referee 不动。是 PRD#2（一整场可玩）A 机械域 路线的承重决策。
+- 关系：**修订 [ADR-0001]**（其决策为"骰子 v1 用 TS 原生、机械域整块割给 SealDice Go 边车、写 branch-snapshot 卡垫片"）。复用 [ADR-0001] 早已留出的 `DicePort` 边界（`NativeDice` 已实现它）——本 ADR 只换端口背后的实现 + 卡归属，引擎/referee 不动。是 PRD#2（一整场可玩）A 机械域 路线的承重决策。
 
 ## 背景
 
-PRD#2 北极星「一场团从头跑到尾」要求机械域有**真判定**（检定/战斗按系统结算，反馈进叙事）。v1 把骰子留在 TS 原生（`NativeDice` 实现 `SealDicePort`，COC7/DND5e 简化判定），SealDice 作为机械权威被 [ADR-0001] 延后。
+PRD#2 北极星「一场团从头跑到尾」要求机械域有**真判定**（检定/战斗按系统结算，反馈进叙事）。v1 把骰子留在 TS 原生（`NativeDice` 实现 `DicePort`，COC7/DND5e 简化判定），SealDice 作为机械权威被 [ADR-0001] 延后。
 
 PRD#2 选型调研（`docs/research/dice-engine-options.html`）的实测发现改变了成本图景：
 
@@ -18,7 +18,7 @@ PRD#2 选型调研（`docs/research/dice-engine-options.html`）的实测发现�
 
 ## 决策
 
-- **机械判定引擎 = BCDice（npm `bcdice`），进程内嵌**，实现 `SealDicePort`，取代 `NativeDice` 作为生产实现（引擎/referee 不动——端口边界由 [ADR-0001] 预留）。
+- **机械判定引擎 = BCDice（npm `bcdice`），进程内嵌**，实现 `DicePort`，取代 `NativeDice` 作为生产实现（引擎/referee 不动——端口边界由 [ADR-0001] 预留）。
 - **角色卡归我们**：叙事灵魂（soul）+ 按系统的结构化机械卡（sheet）都存我们自己的库（[ADR-0012] 的 SoulStore/CardStore 沿用）。BCDice 只做「给定卡值 + 指令 → 按系统结构化判定」，**不拥有卡**。这天然化解 [ADR-0001] 担心的「SealDice 想拥有卡」双头冲突——BCDice 不抢卡，机械/叙事分工干净。
 - **不再起 Go 边车、不写 OneBot 桥、不引入第二 bot、不写 SealDice 卡快照垫片**。
 - **承重假设先 spike（PRD#2 第一步）**：BCDice 的 **D&D5e 判定深度**（属性调整、熟练加值、优势/劣势）是否够用。够则正式接；不够则该系统回退自写规则或评估替代，不阻塞 CoC7 路径。
@@ -27,11 +27,11 @@ PRD#2 选型调研（`docs/research/dice-engine-options.html`）的实测发现�
 
 - **SealDice Go 边车（[ADR-0001] 原决策）**：否决——非干净 RPC（OneBot 桥 + 脆文字解析）、第二-bot 风险、Go 进程编排，最重的集成。
 - **Avrae**：否决——Discord bot + 仅 D&D5e。
-- **rpg-dice-roller（npm）/ 继续自写 NativeDice**：只算骰子表达式 / 系统规则全自写，撑不起多系统真判定。`NativeDice` 保留为**端口的离线/测试回退实现**，与 BCDice 并存（同一 `SealDicePort`）。
+- **rpg-dice-roller（npm）/ 继续自写 NativeDice**：只算骰子表达式 / 系统规则全自写，撑不起多系统真判定。`NativeDice` 保留为**端口的离线/测试回退实现**，与 BCDice 并存（同一 `DicePort`）。
 
 ## 后果
 
-- 新增 `src/adapters/dice/`（如 `bcdice-dice.ts`）：`SealDicePort` 实现，封 `bcdice` 库的系统加载 + 指令求值 + 结构化解析。BCDice 的指令语法（`CC<=`、系统特定）被**封在适配器内**，引擎/AIDM 仍只调 `SealDicePort.callCheck/roll`。`NativeDice` 保留为回退/测试。
+- 新增 `src/adapters/dice/`（如 `bcdice-dice.ts`）：`DicePort` 实现，封 `bcdice` 库的系统加载 + 指令求值 + 结构化解析。BCDice 的指令语法（`CC<=`、系统特定）被**封在适配器内**，引擎/AIDM 仍只调 `DicePort.callCheck/roll`。`NativeDice` 保留为回退/测试。
 - **掷骰触发面 = 命令面，不是聊天命令**。SealDice 的 `.r`/`.ra` 是「频道里第二个 bot 拦截文字消息掷骰」；BCDice 是进程内库、**不看 chat**，所以 `.r`/`.ra` 这套消失。两条路：
   - **隐式（常态）**：玩家用自由文字声明动作 → AIDM 判定需检定 → 调引擎 `call_check` → 该 actor 投 → BCDice 结算 → AIDM 叙事。玩家不需学任何骰子语法。
   - **显式（`.ra` 的忠实替身）= `/check <skill>` / `/roll <expr>` slash 命令**。掷骰是控制动作，归 slash 控制面（[ADR-0012]：自由文字=内容、slash=控制）；**不复用 `.`-前缀文字**——那会在内容流里再开一个魔法前缀（`(` 已是 OOC），并请回我们刚否决的「解析自然语言式命令」的脆弱耦合。
