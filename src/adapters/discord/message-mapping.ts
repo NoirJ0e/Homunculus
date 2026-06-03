@@ -22,9 +22,13 @@ export type MappedMessage = HumanTurn | OocMarker;
  *
  * Dispatch table by leading symbol (ADR-0011 前缀表):
  *   first char "(" or "（"                       → OOC (skipped by the inbox)
- *   ".ra" prefix (case-insensitive)            → roll
  *   "pass" / "pass你们继续" (trimmed, lowercased) → pass (explicit yield ≠ silence)
  *   anything else (non-empty)                  → prose
+ *
+ * ADR-0013: `.ra`/`.r` is NO LONGER a roll trigger. BCDice doesn't read chat;
+ * rolling is a control action that moved to the `/check` slash command (the
+ * `roll` HumanTurn is now injected by that handler via `PushInbox.deliverTurn`,
+ * not parsed out of a chat message). A `.ra …` message is now ordinary prose.
  *
  * `?` (questions) and other leading symbols are reserved for future slices; this
  * slice does not implement their semantics (they fall through to prose for now).
@@ -38,9 +42,6 @@ export function mapContentToTurn(raw: string): MappedMessage {
 
   if (OOC_PREFIXES.some((p) => trimmed.startsWith(p))) {
     return { kind: "ooc" };
-  }
-  if (lower.startsWith(".ra")) {
-    return { kind: "roll" };
   }
   if (PASS_EXACT.has(lower)) {
     return { kind: "pass" };

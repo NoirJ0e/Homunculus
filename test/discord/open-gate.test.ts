@@ -84,6 +84,8 @@ function makeRouter() {
       reply: async (t) => void replies.push(t),
     }),
     addAiSeat: async () => {},
+    check: async () => {},
+    roll: async () => {},
   });
 
   const router = createCommandRouter(set, authority);

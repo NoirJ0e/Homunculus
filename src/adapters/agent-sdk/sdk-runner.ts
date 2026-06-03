@@ -42,11 +42,20 @@ export async function npcGenerate(prompt: string): Promise<string> {
 export function dmQueryStream(referee: Referee, systemPrompt: string): AsyncIterable<unknown> {
   return query({
     prompt:
-      "开始主持这场牌局：先用 narrate 发一段开场叙事，再用 await_actors 抛屏障等在场者回应；收齐后继续 narrate 推进。",
+      "开始主持这场牌局：先用 narrate 发一段开场叙事，再用 await_actors 抛屏障等在场者回应；收齐后继续 narrate 推进。" +
+      "当某个角色的行动需要机械结算（检定/攻击）时，用 call_check 对该角色喊检定（声明技能、难度=DC、mode），" +
+      "然后照常 await_actors——由该角色自己用 /check 掷骰，你不要替他掷。",
     options: {
       systemPrompt,
       mcpServers: { engine: createDmMcpServer(referee) },
-      allowedTools: ["mcp__engine__narrate", "mcp__engine__await_actors"],
+      allowedTools: [
+        "mcp__engine__narrate",
+        "mcp__engine__await_actors",
+        // #44 — the AIDM 喊检定 (declares WHAT to roll); the player pulls the
+        // trigger via `/check`, the NPC via its own `roll`. The AIDM never
+        // auto-rolls (ADR-0013); a silent human holds the barrier (ADR-0003).
+        "mcp__engine__call_check",
+      ],
       permissionMode: "bypassPermissions",
     },
   });

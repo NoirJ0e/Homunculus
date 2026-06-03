@@ -14,9 +14,10 @@
  * A player types in a Discord thread. We map their message content to a
  * HumanTurn as follows:
  *
- *   starts with ".ra" (case-insensitive)     → { kind: "roll" }
- *     Used when the engine has called a check and the human types `.ra <skill>`
- *     to resolve it via the dice authority (BCDice, ADR-0013).
+ *   (ADR-0013) ".ra"/".r" is NO LONGER a roll trigger — rolling moved to the
+ *     `/check` slash command (BCDice doesn't read chat). A `.ra …` message now
+ *     falls through to prose; the `roll` HumanTurn is injected by the `/check`
+ *     handler via `PushInbox.deliverTurn`, not parsed here.
  *
  *   exactly "pass" or "pass你们继续"
  *   (trimmed, case-insensitive)              → { kind: "pass" }

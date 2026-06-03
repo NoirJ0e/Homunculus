@@ -72,13 +72,13 @@ describe("#20/#4 GatewayInbox — blocking human-await over pushed events", () =
     expect(await pending).toEqual({ kind: "prose", prose: "终于轮到我。" });
   });
 
-  test("maps .ra → roll and pass → pass (shared convention)", async () => {
+  test("maps pass → pass; `.ra` is now prose (ADR-0013, rolling → /check)", async () => {
     const source = new FakeEventSource();
     const inbox = new GatewayInbox(source, personas, threadMap);
 
-    const rollP = inbox.poll(human, scene);
+    const proseP = inbox.poll(human, scene);
     source.emit(msg({ content: ".ra 侦查" }));
-    expect(await rollP).toEqual({ kind: "roll" });
+    expect(await proseP).toEqual({ kind: "prose", prose: ".ra 侦查" });
 
     const passP = inbox.poll(human, scene);
     source.emit(msg({ content: "pass" }));

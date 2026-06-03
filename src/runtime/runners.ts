@@ -1,7 +1,7 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { DiscordAdminPort } from "../ports/discord-admin.js";
 import type { DiscordClient } from "../adapters/discord/discord-substrate.js";
-import { actorId, sceneId as brandScene, campaignId } from "../domain/ids.js";
+import { actorId, sceneId as brandScene, campaignId, type CampaignId } from "../domain/ids.js";
 import type { ActorPersona } from "../adapters/discord/scene-threads.js";
 import { DiscordSubstrate } from "../adapters/discord/discord-substrate.js";
 import { Referee } from "../engine/referee.js";
@@ -21,7 +21,9 @@ import { runDmDriver } from "./dm-driver.js";
 import { PushInbox } from "./push-inbox.js";
 import { StreamInputChannel } from "./stream-input.js";
 import { postCardAssistantText } from "./card-creation.js";
+import { CheckSessionTable } from "./check-session.js";
 import type { QueryHandle, QueryRunner, QueryRunnerContext } from "./dispatcher.js";
+import type { DicePort } from "../ports/dice.js";
 
 /**
  * runners.ts — the three per-role QueryRunners the dispatcher spins up (ADR-0011
@@ -89,6 +91,19 @@ export interface RunnerDeps {
   readonly isSessionActive: () => boolean;
   /** Sink for runner-level errors (logging in production). */
   readonly onError?: (where: string, error: unknown) => void;
+  /**
+   * The campaign's mechanical-judge (#44, ADR-0013): BCDice reading the campaign's
+   * read-only CardStore in production. When present, the AIDM Referee gets a
+   * DicePort so `/check` resolves real rolls; when undefined the check stays a pass
+   * (no dice authority). Per-campaign so sheets are scoped to the right campaign.
+   */
+  readonly makeDice?: (campaign: CampaignId) => DicePort | undefined;
+  /**
+   * The channelId → live-AIDM-session registry the `/check` handler reaches
+   * through (#44). The AIDM runner binds a handle on spin-up; the handler injects
+   * the roll turn into that session's inbox. Optional + additive.
+   */
+  readonly checkSessions?: CheckSessionTable;
 }
 
 export interface Runners {
@@ -187,11 +202,28 @@ export function makeRunners(deps: RunnerDeps): Runners {
         ? new AgentNpc({ persona: cast.npcPersona, generate: npcGenerate })
         : undefined;
 
-    const referee = new Referee(
-      npc !== undefined
-        ? { aidmId: aidm, substrate, npc, humanInbox: inbox, roster }
-        : { aidmId: aidm, substrate, humanInbox: inbox, roster },
-    );
+    // #44 — the campaign's mechanical judge (BCDice in prod). With it, `/check`
+    // and NPC rolls resolve real dice; without it a roll stays a pass.
+    const dice = deps.makeDice?.(campaign);
+
+    const referee = new Referee({
+      aidmId: aidm,
+      substrate,
+      humanInbox: inbox,
+      roster,
+      ...(npc !== undefined && { npc }),
+      ...(dice !== undefined && { dice }),
+    });
+
+    // #44 — register this channel's live AIDM session so the `/check` handler can
+    // resolve the invoker's pending check by injecting a roll turn into the inbox.
+    // `hasPending` reads the Referee's pending checks (read-only); `deliverTurn`
+    // pushes the pre-formed roll into the same inbox the engine polls.
+    deps.checkSessions?.bind(ctx.channelId, {
+      hasPending: (actor) => referee.pendingCheckFor(actor) !== undefined,
+      deliverTurn: (turn) => inbox.deliverTurn(turn),
+    });
+    teardowns.set(ctx.channelId, () => deps.checkSessions?.delete(ctx.channelId));
 
     const bible = campaignStore.get(campaign);
     const campaignBrief = bible

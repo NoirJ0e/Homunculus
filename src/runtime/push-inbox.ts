@@ -28,8 +28,17 @@ export class PushInbox implements HumanInboxPort {
   deliver(message: GatewayMessage): void {
     const mapped = mapContentToTurn(message.content);
     if (mapped.kind === "ooc") return; // skip — not a turn (ADR-0011)
-    const turn: HumanTurn = mapped;
+    this.deliverTurn(mapped);
+  }
 
+  /**
+   * Inject a PRE-FORMED HumanTurn directly — no text mapping (ADR-0013). The
+   * `/check` slash handler uses this to push `{kind:"roll", advantage?}` into the
+   * waiting engine poll: the human declared HOW (advantage) on the control surface,
+   * not as prose. Resolves a waiting poll, or buffers if no poll waits yet (parallel
+   * to `deliver`, which maps a chat message's text first).
+   */
+  deliverTurn(turn: HumanTurn): void {
     if (this.waiter) {
       const resolve = this.waiter;
       this.waiter = undefined;

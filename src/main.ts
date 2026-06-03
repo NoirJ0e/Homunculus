@@ -28,7 +28,7 @@ import { FileCampaignStore } from "./adapters/store/file-campaign-store.js";
 import { FileRosterStore } from "./adapters/store/file-roster-store.js";
 import { FileSoulStore } from "./adapters/store/file-soul-store.js";
 import { FileCampaignMetaStore } from "./adapters/store/file-campaign-meta-store.js";
-import { FileCardWriter } from "./adapters/store/file-card-store.js";
+import { FileCardWriter, FileCardStore } from "./adapters/store/file-card-store.js";
 import { FileExceptionStore } from "./adapters/store/file-exception-store.js";
 import { Dispatcher } from "./runtime/dispatcher.js";
 import { CardCreationSessionTable } from "./runtime/card-creation-session.js";
@@ -51,6 +51,11 @@ import { createCreateCharacterCardHandler } from "./adapters/discord/create-char
 import { createVerifyCardHandler } from "./adapters/discord/verify-card-handler.js";
 import { createApproveHandler } from "./adapters/discord/approve-handler.js";
 import { createAddAiSeatHandler } from "./adapters/discord/add-ai-seat-handler.js";
+import { createCheckHandler } from "./adapters/discord/check-handler.js";
+import { createRollHandler } from "./adapters/discord/roll-handler.js";
+import { CheckSessionTable } from "./runtime/check-session.js";
+import { BcdiceDice } from "./adapters/dice/bcdice-dice.js";
+import { LibBcdiceEvaluator } from "./adapters/dice/bcdice-evaluator.js";
 import {
   createCardVerifierLlm,
   createAiReviser,
@@ -90,6 +95,15 @@ const soulStore = new FileSoulStore(dataDir, campaignId(cfg.lobbyCampaign));
 const cardWriter = new FileCardWriter(dataDir);
 const exceptionStore = new FileExceptionStore(dataDir);
 
+// #44 — the live check loop. The BCDice evaluator is shared (lazy system cache);
+// `makeDice` wraps it over the campaign's READ-ONLY card store so the AIDM Referee
+// has a real DicePort. The CheckSessionTable lets the `/check` handler reach the
+// channel's live AIDM session inbox.
+const bcdiceEvaluator = new LibBcdiceEvaluator();
+const checkSessions = new CheckSessionTable();
+const makeDice = (campaign: CampaignId) =>
+  new BcdiceDice(new FileCardStore(dataDir, campaign), bcdiceEvaluator);
+
 const runners = makeRunners({
   discordClient,
   adminPort,
@@ -99,6 +113,8 @@ const runners = makeRunners({
   defaultArchetype: cfg.defaultArchetype,
   isSessionActive: () => active,
   onError: (where, error) => console.error(`[runner-error] ${where}`, error),
+  makeDice,
+  checkSessions,
 });
 
 // #34 — open-card sessions are command-bound (threadId → session) by the
@@ -228,6 +244,23 @@ const commandSet = createCommandSet({
     soulStore,
     cardWriter,
     rosterStore,
+    reply,
+  }),
+  // #44 — `/check`: inject the invoker's roll turn into the channel's live AIDM
+  // session inbox (the engine resolves it via BCDice; the AIDM narrates). No live
+  // session / no pending → a friendly reply. Own-check is enforced by the engine.
+  check: createCheckHandler({
+    sessionFor: (channelId) => checkSessions.get(channelId),
+    resolveActor: (invokerId) => actorId(invokerId),
+    reply,
+  }),
+  // #44 — `/roll`: a free BCDice roll for the campaign's system, posted back to
+  // the channel (not tied to any pending check).
+  roll: createRollHandler({
+    evaluator: bcdiceEvaluator,
+    systemFor: (event) => campaignStore.get(resolveCampaign(event))?.system ?? "coc7",
+    post: (channelId, text) =>
+      discordClient.sendWebhookMessage(channelId, { content: text, username: "骰子" }),
     reply,
   }),
   setRoster: createSetRosterHandler({

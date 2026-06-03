@@ -27,12 +27,19 @@ export type SceneEffect =
 /**
  * A check the AIDM calls for (喊检定): a specific actor rolls a skill at a
  * difficulty band. The AIDM only calls it — the dice authority resolves and is the sole
- * writer of the sheet (ADR-0001/0002); the character emits the actual `.ra`.
+ * writer of the sheet (ADR-0001/0002); the actor pulls the trigger itself (human
+ * via `/check`, NPC via its `roll` tool).
  */
 export interface CheckCall {
   readonly actor: ActorId;
   readonly skill: string;
   readonly difficulty?: string;
+  /**
+   * What kind of roll this check resolves to (ADR-0013): "check" (ability check,
+   * default) or "attack" (attack roll, difficulty = target AC). Threaded into the
+   * `RollRequest` so BCDice builds the right command (AR vs AT for D&D5e).
+   */
+  readonly mode?: "check" | "attack";
 }
 
 /**
