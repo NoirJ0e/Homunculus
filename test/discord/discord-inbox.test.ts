@@ -5,9 +5,9 @@
  *   - DiscordInbox implements HumanInboxPort.
  *   - poll(actor, sceneId) fetches inbound Discord messages from the thread
  *     mapped to sceneId since the last poll, and maps them to HumanTurn:
- *       - starts with ".ra" (case-insensitive) → { kind: "roll" }
  *       - exactly "pass" or "pass你们继续" → { kind: "pass" }
- *       - any other non-empty text → { kind: "prose", prose }
+ *       - any other non-empty text → { kind: "prose", prose } (incl. ".ra …",
+ *         ADR-0013: rolling moved to the `/check` slash command)
  *       - no messages (silence) → undefined
  *   - Only messages from the given actor (by Discord user ID) are returned.
  *   - A second poll with no new messages → undefined.
@@ -156,11 +156,11 @@ describe("DiscordInbox — prose mapping", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Roll mapping: .ra prefix
+// ADR-0013: `.ra` is no longer a roll trigger — rolling moved to `/check`.
 // ---------------------------------------------------------------------------
 
-describe("DiscordInbox — roll mapping (.ra prefix)", () => {
-  test("'.ra 感知' → { kind: 'roll' }", async () => {
+describe("DiscordInbox — `.ra` is now ordinary prose (ADR-0013, rolling → /check)", () => {
+  test("'.ra 感知' → prose (no longer a roll)", async () => {
     const client = pushableClient();
     client.push("thread-tavern-001", {
       userId: humanDiscordId,
@@ -170,36 +170,10 @@ describe("DiscordInbox — roll mapping (.ra prefix)", () => {
     const inbox = new DiscordInbox(client, personas, threadMap);
 
     const turn = await inbox.poll(humanId, tavernScene);
-    expect(turn).toEqual({ kind: "roll" });
+    expect(turn).toEqual({ kind: "prose", prose: ".ra 感知" });
   });
 
-  test("'.ra Athletics' → { kind: 'roll' }", async () => {
-    const client = pushableClient();
-    client.push("thread-dungeon-007", {
-      userId: humanDiscordId,
-      content: ".ra Athletics",
-      messageId: "msg-5",
-    });
-    const inbox = new DiscordInbox(client, personas, threadMap);
-
-    const turn = await inbox.poll(humanId, dungeonScene);
-    expect(turn).toEqual({ kind: "roll" });
-  });
-
-  test("'.ra' alone (no skill) → { kind: 'roll' }", async () => {
-    const client = pushableClient();
-    client.push("thread-tavern-001", {
-      userId: humanDiscordId,
-      content: ".ra",
-      messageId: "msg-6",
-    });
-    const inbox = new DiscordInbox(client, personas, threadMap);
-
-    const turn = await inbox.poll(humanId, tavernScene);
-    expect(turn).toEqual({ kind: "roll" });
-  });
-
-  test("'.RA' (uppercase) → { kind: 'roll' } (case-insensitive)", async () => {
+  test("'.RA 运动' (uppercase) → prose (case-insensitive trigger gone)", async () => {
     const client = pushableClient();
     client.push("thread-tavern-001", {
       userId: humanDiscordId,
@@ -209,7 +183,7 @@ describe("DiscordInbox — roll mapping (.ra prefix)", () => {
     const inbox = new DiscordInbox(client, personas, threadMap);
 
     const turn = await inbox.poll(humanId, tavernScene);
-    expect(turn).toEqual({ kind: "roll" });
+    expect(turn).toEqual({ kind: "prose", prose: ".RA 运动" });
   });
 });
 

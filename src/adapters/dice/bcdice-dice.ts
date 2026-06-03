@@ -40,8 +40,9 @@ export interface BcdiceEvaluator {
   eval(systemId: string, command: string): Promise<BcdiceEval | null>;
 }
 
-/** Our {@link DiceSystem} → BCDice game-system id. */
-const SYSTEM_ID: Readonly<Record<string, string>> = {
+/** Our {@link RuleSystem} → BCDice game-system id. Exported so the `/roll` free-
+ *  expression handler can resolve the campaign's system id without re-hardcoding. */
+export const SYSTEM_ID: Readonly<Record<string, string>> = {
   coc7: "Cthulhu7th",
   dnd5e: "DungeonsAndDragons5",
 };

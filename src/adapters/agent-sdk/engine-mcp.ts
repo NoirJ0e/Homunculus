@@ -50,10 +50,15 @@ export function dmTools(referee: Referee): SdkMcpToolDefinition<any>[] {
     ),
     tool(
       "call_check",
-      "AIDM 喊检定：对某个角色就某项技能/难度发起检定（只喊不掷）。引擎登记为待掷，待该角色自己 roll 时由骰子裁决。仅 DM 可用。",
-      { actor: z.string(), skill: z.string(), difficulty: z.string().optional() },
+      "AIDM 喊检定：对某个角色就某项技能/难度发起检定（只喊不掷）。引擎登记为待掷，待该角色自己 roll 时由骰子裁决。mode 区分 check（属性检定，默认）与 attack（攻击骰，difficulty=目标 AC）。仅 DM 可用。",
+      {
+        actor: z.string(),
+        skill: z.string(),
+        difficulty: z.string().optional(),
+        mode: z.enum(["check", "attack"]).optional(),
+      },
       async (args) => {
-        await referee.callCheck(actorId(args.actor), args.skill, args.difficulty);
+        await referee.callCheck(actorId(args.actor), args.skill, args.difficulty, args.mode);
         return { content: [{ type: "text", text: `check called on ${args.actor}: ${args.skill}` }] };
       },
     ),

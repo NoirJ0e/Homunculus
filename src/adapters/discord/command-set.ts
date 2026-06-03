@@ -25,6 +25,10 @@ export interface CommandSetHandlers {
   readonly setRoster: CommandHandler;
   /** Owner adds an AI teammate seat — same create→verify→bind path (#37). */
   readonly addAiSeat: CommandHandler;
+  /** Player pulls the trigger on their own pending check (ADR-0013, #44). */
+  readonly check: CommandHandler;
+  /** Player makes a free BCDice roll, not tied to a pending check (#44). */
+  readonly roll: CommandHandler;
 }
 
 /** Human-facing descriptions used when registering the commands as guild application commands. */
@@ -35,6 +39,8 @@ export const COMMAND_DESCRIPTIONS: Readonly<Record<string, string>> = {
   "approve": "Owner only: approve a verifier exception for the campaign.",
   "set-roster": "Declare the campaign roster (first caller becomes owner; @ yourself to play too).",
   "add-ai-seat": "Owner only: add an AI teammate seat (auto-generated, then reviewed like any card).",
+  "check": "Roll your pending check (the AIDM called for it). Optionally pass 优势/劣势.",
+  "roll": "Roll free dice for this campaign's system, e.g. 2d6.",
 };
 
 /**
@@ -77,6 +83,15 @@ export const COMMAND_OPTIONS: Readonly<Record<string, readonly CommandOption[]>>
     { type: 3, name: "archetype", description: "AI 队友职业原型，如 战士 / 游侠（可选）" },
     { type: 3, name: "name", description: "AI 队友名字（可选）" },
   ],
+  // `/check`: one optional STRING for advantage. 优势 → advantage, 劣势 → disadvantage;
+  // anything else → a straight roll (the handler parses leniently).
+  check: [
+    { type: 3, name: "advantage", description: "优势 或 劣势（留空＝普通检定）" },
+  ],
+  // `/roll`: one required STRING free expression, e.g. 2d6 / 1d20+3.
+  roll: [
+    { type: 3, name: "expr", description: "掷骰表达式，例如 2d6 或 1d20+3", required: true },
+  ],
 };
 
 /**
@@ -96,5 +111,9 @@ export function createCommandSet(handlers: CommandSetHandlers): CommandRegistrat
     // claims the campaign owner; afterward only that owner may change the roster.
     { name: "set-roster", scope: "any", handler: handlers.setRoster },
     { name: "add-ai-seat", scope: "owner", handler: handlers.addAiSeat },
+    // #44 — the two roll-trigger commands (ADR-0013). Player-scoped: only a
+    // rostered player may roll (the engine still enforces own-check on resolve).
+    { name: "check", scope: "player", handler: handlers.check },
+    { name: "roll", scope: "player", handler: handlers.roll },
   ];
 }

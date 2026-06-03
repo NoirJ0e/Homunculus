@@ -21,9 +21,13 @@ describe("#24 mapContentToTurn — OOC prefix dispatch", () => {
     });
   });
 
-  test("regression: .ra → roll, pass → pass, free text → prose are unchanged", () => {
-    expect(mapContentToTurn(".ra 侦查")).toEqual({ kind: "roll" });
-    expect(mapContentToTurn(".RA stealth")).toEqual({ kind: "roll" });
+  test("ADR-0013: .ra is no longer a roll trigger — it is ordinary prose now", () => {
+    // Rolling moved to the `/check` slash command; `.ra …` chat is just prose.
+    expect(mapContentToTurn(".ra 侦查")).toEqual({ kind: "prose", prose: ".ra 侦查" });
+    expect(mapContentToTurn(".RA stealth")).toEqual({ kind: "prose", prose: ".RA stealth" });
+  });
+
+  test("regression: pass → pass, free text → prose are unchanged", () => {
     expect(mapContentToTurn("pass")).toEqual({ kind: "pass" });
     expect(mapContentToTurn("pass你们继续")).toEqual({ kind: "pass" });
     expect(mapContentToTurn("我搜索房间。")).toEqual({

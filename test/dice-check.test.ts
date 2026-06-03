@@ -6,6 +6,8 @@ import { Referee } from "../src/engine/referee.js";
 import { FakeSubstrate } from "../src/adapters/memory/fake-substrate.js";
 import { FakeNpc } from "../src/adapters/memory/fake-npc.js";
 import { FakeDice } from "../src/adapters/memory/fake-dice.js";
+import { FakeHumanInbox } from "../src/adapters/memory/fake-human-inbox.js";
+import { mapRoster } from "../src/engine/roster.js";
 import { runDmToolFlow } from "../src/adapters/memory/fake-tool-flow.js";
 import { dmTools, npcTools } from "../src/adapters/agent-sdk/engine-mcp.js";
 
@@ -167,5 +169,71 @@ describe("tool partition — DM gets read_card/call_check, never write_card; NPC
     expect(names).not.toContain("narrate");
     expect(names).not.toContain("call_check");
     expect(names).not.toContain("read_card");
+  });
+});
+
+describe("#44 check live loop — mode + advantage thread into the RollRequest", () => {
+  test("call_check stores mode; resolveRoll builds a RollRequest with skill/difficulty/mode", async () => {
+    const substrate = new FakeSubstrate();
+    const npc = new FakeNpc({ "hero-1": [{ kind: "roll" }] });
+    const dice = new FakeDice([
+      { actorId: hero, skill: "攻击", total: 19, success: true, detail: "AT+5>=15 → 19 → 成功（攻击）" },
+    ]);
+    const referee = new Referee({ aidmId: actorId("aidm"), substrate, npc, dice });
+
+    // The AIDM declares an ATTACK check with an AC.
+    await referee.callCheck(hero, "攻击", "ac15", "attack");
+    await runDmToolFlow(referee, [{ tool: "await_actors", sceneId: scene, order: [hero] }]);
+
+    // The pending's skill/difficulty/mode all reach the dice port.
+    expect(dice.requests).toEqual([
+      { actorId: hero, skill: "攻击", difficulty: "ac15", mode: "attack" },
+    ]);
+  });
+
+  test("a human roll turn's advantage threads through into the RollRequest", async () => {
+    const substrate = new FakeSubstrate();
+    const inbox = new FakeHumanInbox({ "hero-1": { kind: "roll", advantage: "advantage" } });
+    const roster = mapRoster({ "hero-1": "human" });
+    const dice = new FakeDice([
+      { actorId: hero, skill: "察觉", total: 18, success: true, detail: "AR+3>=10A → 18 → 成功（察觉）" },
+    ]);
+    const referee = new Referee({
+      aidmId: actorId("aidm"),
+      substrate,
+      humanInbox: inbox,
+      roster,
+      dice,
+    });
+
+    await referee.callCheck(hero, "察觉", "dc10");
+    await runDmToolFlow(referee, [{ tool: "await_actors", sceneId: scene, order: [hero] }]);
+
+    // skill+difficulty from the pending check, advantage from the human's roll turn.
+    expect(dice.requests).toEqual([
+      { actorId: hero, skill: "察觉", difficulty: "dc10", advantage: "advantage" },
+    ]);
+  });
+
+  test("a straight human roll (no advantage) omits the advantage field entirely", async () => {
+    const substrate = new FakeSubstrate();
+    const inbox = new FakeHumanInbox({ "hero-1": { kind: "roll" } });
+    const roster = mapRoster({ "hero-1": "human" });
+    const dice = new FakeDice([
+      { actorId: hero, skill: "察觉", total: 12, success: true, detail: "成功" },
+    ]);
+    const referee = new Referee({
+      aidmId: actorId("aidm"),
+      substrate,
+      humanInbox: inbox,
+      roster,
+      dice,
+    });
+
+    await referee.callCheck(hero, "察觉");
+    await runDmToolFlow(referee, [{ tool: "await_actors", sceneId: scene, order: [hero] }]);
+
+    // No mode, no difficulty, no advantage — conditional spread leaves them out.
+    expect(dice.requests).toEqual([{ actorId: hero, skill: "察觉" }]);
   });
 });

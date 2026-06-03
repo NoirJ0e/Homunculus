@@ -52,16 +52,30 @@ describe("#28 PushInbox — the dispatcher-fed HumanInboxPort", () => {
     expect(await pending).toEqual({ kind: "prose", prose: "我回来了，行动。" });
   });
 
-  test("maps .ra → roll and pass → pass through the shared convention", async () => {
+  test("maps pass → pass through the shared convention (`.ra` is gone, now prose)", async () => {
     const inbox = new PushInbox();
 
-    const rollP = inbox.poll(human, scene);
+    // ADR-0013: `.ra` is no longer a magic roll trigger — it is ordinary prose.
+    const proseP = inbox.poll(human, scene);
     inbox.deliver(msg(".ra 侦查"));
-    expect(await rollP).toEqual({ kind: "roll" });
+    expect(await proseP).toEqual({ kind: "prose", prose: ".ra 侦查" });
 
     const passP = inbox.poll(human, scene);
     inbox.deliver(msg("pass"));
     expect(await passP).toEqual({ kind: "pass" });
+  });
+
+  test("deliverTurn injects a pre-formed roll turn, resolving a waiting poll", async () => {
+    const inbox = new PushInbox();
+    const rollP = inbox.poll(human, scene);
+    inbox.deliverTurn({ kind: "roll", advantage: "advantage" });
+    expect(await rollP).toEqual({ kind: "roll", advantage: "advantage" });
+  });
+
+  test("deliverTurn before a poll is buffered and returned by the next poll", async () => {
+    const inbox = new PushInbox();
+    inbox.deliverTurn({ kind: "roll" });
+    expect(await inbox.poll(human, scene)).toEqual({ kind: "roll" });
   });
 
   test("a message delivered before any poll is buffered and returned by the next poll", async () => {

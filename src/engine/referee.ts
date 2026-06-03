@@ -290,8 +290,28 @@ export class Referee {
    * The actor resolves it later by emitting its own `roll` during `await_actors`.
    * A re-call on the same actor replaces the prior pending entry.
    */
-  async callCheck(actor: ActorId, skill: string, difficulty?: string): Promise<void> {
-    this.pendingChecks.set(actor, { actor, skill, ...(difficulty !== undefined && { difficulty }) });
+  async callCheck(
+    actor: ActorId,
+    skill: string,
+    difficulty?: string,
+    mode?: "check" | "attack",
+  ): Promise<void> {
+    this.pendingChecks.set(actor, {
+      actor,
+      skill,
+      ...(difficulty !== undefined && { difficulty }),
+      ...(mode !== undefined && { mode }),
+    });
+  }
+
+  /**
+   * The pending check the AIDM 喊'd on an actor (if any), or undefined. Read-only
+   * inspection — the `/check` slash handler uses it to tell whether the invoker
+   * has anything to roll before injecting a roll turn (ADR-0013). Pure, no I/O.
+   */
+  pendingCheckFor(actor: ActorId): CheckCall | undefined {
+    const pending = this.pendingChecks.get(actor);
+    return pending ? { ...pending } : undefined;
   }
 
   /**
@@ -305,14 +325,18 @@ export class Referee {
 
   /**
    * Resolve an actor's `roll` against ITS OWN pending check (后手只能掷自己的).
-   * With a matching pending and a dice port: consume the pending, resolve via the
-   * dice authority, post the structured detail as that actor, emit `check-resolved`.
-   * No own pending (or no dice port) → there is nothing to roll; it stays a pass.
+   * With a matching pending and a dice port: consume the pending, build the full
+   * {@link RollRequest} — merging the pending check's WHAT (skill/difficulty/mode,
+   * declared by the AIDM via `call_check`) with the roll turn's HOW (`advantage`,
+   * declared by the rolling actor) — resolve via the dice authority, post the
+   * structured detail as that actor, emit `check-resolved`. No own pending (or no
+   * dice port) → there is nothing to roll; it stays a pass.
    */
   private async resolveRoll(
     scene: SceneId,
     actor: ActorId,
     events: AwaitEvent[],
+    advantage?: "advantage" | "disadvantage",
   ): Promise<SlotResult> {
     const pending = this.pendingChecks.get(actor);
     if (!pending || !this.deps.dice) {
@@ -324,6 +348,8 @@ export class Referee {
       actorId: actor,
       skill: pending.skill,
       ...(pending.difficulty !== undefined && { difficulty: pending.difficulty }),
+      ...(pending.mode !== undefined && { mode: pending.mode }),
+      ...(advantage !== undefined && { advantage }),
     });
     const post = await this.post(scene, actor, result.detail);
     events.push({
@@ -384,7 +410,7 @@ export class Referee {
       return { kind: "passed" };
     }
     if (turn.kind === "roll") {
-      return this.resolveRoll(scene, actor, events);
+      return this.resolveRoll(scene, actor, events, turn.advantage);
     }
     const post = await this.post(scene, actor, turn.prose);
     events.push({ kind: "actor-acted", actorId: actor });
