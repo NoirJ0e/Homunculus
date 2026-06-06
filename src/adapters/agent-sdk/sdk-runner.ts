@@ -9,14 +9,20 @@ import { createDmMcpServer } from "./engine-mcp.js";
  * consume these via DI seams. Validated by the Phase-0 spike + the Phase-5 run.
  */
 
-/** Collect the assistant text from a finished one-shot query stream. */
-async function collectText(stream: AsyncIterable<unknown>): Promise<string> {
+/** Collect the assistant text from a finished one-shot query stream. `onMessage`
+ *  (optional) taps each raw message for the trace before text extraction. */
+async function collectText(
+  stream: AsyncIterable<unknown>,
+  onMessage?: (message: unknown) => void,
+): Promise<string> {
   let out = "";
-  for await (const msg of stream as AsyncIterable<{
-    type: string;
-    error?: string;
-    message?: { content?: Array<{ type: string; text?: string }> };
-  }>) {
+  for await (const raw of stream) {
+    onMessage?.(raw);
+    const msg = raw as {
+      type: string;
+      error?: string;
+      message?: { content?: Array<{ type: string; text?: string }> };
+    };
     if (msg.type === "assistant") {
       if (msg.error) throw new Error(`NPC query error: ${msg.error}`);
       for (const block of msg.message?.content ?? []) {
@@ -27,10 +33,18 @@ async function collectText(stream: AsyncIterable<unknown>): Promise<string> {
   return out;
 }
 
-/** The NPC's `generate` seam: one self-contained query turn → its prose. */
-export async function npcGenerate(prompt: string): Promise<string> {
+/** The NPC's `generate` seam: one self-contained query turn → its prose.
+ *  `onMessage` (optional) taps the stream for the trace. */
+export async function npcGenerate(
+  prompt: string,
+  onMessage?: (message: unknown) => void,
+): Promise<string> {
   return collectText(
-    query({ prompt, options: { permissionMode: "bypassPermissions", maxTurns: 1 } }),
+    query({
+      prompt,
+      options: { permissionMode: "bypassPermissions", maxTurns: 1, thinking: { type: "enabled" } },
+    }),
+    onMessage,
   );
 }
 
@@ -64,6 +78,9 @@ export function dmQueryStream(referee: Referee, systemPrompt: string): AsyncIter
         "mcp__engine__advance_clock",
       ],
       permissionMode: "bypassPermissions",
+      // Extended thinking on, so the trace captures the AIDM's methodology and —
+      // crucially — WHY it does or does not call a tool (e.g. skips call_check).
+      thinking: { type: "enabled" },
     },
   });
 }

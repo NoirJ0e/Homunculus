@@ -30,6 +30,7 @@ import { FileSoulStore } from "./adapters/store/file-soul-store.js";
 import { FileCampaignMetaStore } from "./adapters/store/file-campaign-meta-store.js";
 import { FileCardWriter, FileCardStore } from "./adapters/store/file-card-store.js";
 import { FileExceptionStore } from "./adapters/store/file-exception-store.js";
+import { FileTraceSink } from "./adapters/trace/file-trace-sink.js";
 import { Dispatcher } from "./runtime/dispatcher.js";
 import { CardCreationSessionTable } from "./runtime/card-creation-session.js";
 import { CardVerifySessionTable } from "./runtime/card-verify-session.js";
@@ -104,6 +105,14 @@ const checkSessions = new CheckSessionTable();
 const makeDice = (campaign: CampaignId) =>
   new BcdiceDice(new FileCardStore(dataDir, campaign), bcdiceEvaluator);
 
+// Observability (调优基建): every AIDM session records its agents' streams to
+// `data/traces/<campaign>/<runId>.{jsonl,md}` for eyeball debugging + the
+// check-initiation eval. Disable by setting TRACE=0.
+const tracingOn = process.env.TRACE !== "0";
+const makeTraceSink = tracingOn
+  ? (campaign: CampaignId, runId: string) => new FileTraceSink(dataDir, campaign, runId)
+  : undefined;
+
 const runners = makeRunners({
   discordClient,
   adminPort,
@@ -115,6 +124,7 @@ const runners = makeRunners({
   onError: (where, error) => console.error(`[runner-error] ${where}`, error),
   makeDice,
   checkSessions,
+  ...(makeTraceSink && { makeTraceSink }),
 });
 
 // #34 — open-card sessions are command-bound (threadId → session) by the

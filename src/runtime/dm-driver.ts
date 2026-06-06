@@ -19,14 +19,18 @@ export interface DmDriverDeps {
   readonly isSessionActive: () => boolean;
   /** Observe a query that threw; the loop then re-checks `isSessionActive`. */
   readonly onError?: (error: unknown) => void;
+  /** Tap each streamed message (observability — feeds the trace sink). The loop
+   *  used to discard these; now they can be recorded for debugging + eval. */
+  readonly onMessage?: (message: unknown) => void;
 }
 
 export async function runDmDriver(deps: DmDriverDeps): Promise<void> {
   while (deps.isSessionActive()) {
     try {
-      for await (const _ of deps.runQuery()) {
-        // Drain the stream; the model's tool calls drive the table via the
-        // in-process MCP server. We don't need to inspect the messages here.
+      for await (const message of deps.runQuery()) {
+        // The model's tool calls drive the table via the in-process MCP server;
+        // we tap each message for the trace (or drop it if no observer).
+        deps.onMessage?.(message);
       }
     } catch (error) {
       deps.onError?.(error);

@@ -24,6 +24,8 @@ import { postCardAssistantText } from "./card-creation.js";
 import { CheckSessionTable } from "./check-session.js";
 import type { QueryHandle, QueryRunner, QueryRunnerContext } from "./dispatcher.js";
 import type { DicePort } from "../ports/dice.js";
+import type { TraceSink } from "../ports/trace-sink.js";
+import { messageToTraceEvents } from "../adapters/agent-sdk/trace-tap.js";
 
 /**
  * runners.ts — the three per-role QueryRunners the dispatcher spins up (ADR-0011
@@ -104,6 +106,13 @@ export interface RunnerDeps {
    * the roll turn into that session's inbox. Optional + additive.
    */
   readonly checkSessions?: CheckSessionTable;
+  /**
+   * Observability (v2 调优基建): builds a {@link TraceSink} for one AIDM session
+   * so every agent's stream (AIDM + its NPCs) is recorded — context received,
+   * thinking, prose, tool calls + results. File-backed in production
+   * (`data/traces/`). Optional: undefined → no trace.
+   */
+  readonly makeTraceSink?: (campaign: CampaignId, runId: string) => TraceSink;
 }
 
 export interface Runners {
@@ -177,6 +186,16 @@ export function makeRunners(deps: RunnerDeps): Runners {
     const aidm = actorId("aidm");
     const human = actorId("player");
 
+    // Observability: one trace per session, recording every agent's stream.
+    const runId = `${ctx.routing.campaign}-${Date.now()}`;
+    const sink = deps.makeTraceSink?.(campaign, runId);
+    const observe = sink
+      ? (agent: string) =>
+          (message: unknown): void => {
+            for (const ev of messageToTraceEvents(agent, runId, message)) sink.record(ev);
+          }
+      : undefined;
+
     // Load the campaign's verified, bound AI teammates from the stores — no more
     // inlined genesis. The NPC persona comes from the SAVED soul.
     const cast = assembleAidmCast({
@@ -197,9 +216,13 @@ export function makeRunners(deps: RunnerDeps): Runners {
 
     const inbox = new PushInbox();
     const roster = mapRoster(cast.rosterKinds);
+    const npcLabel = `npc:${cast.teammates[0]?.personaCore.name ?? "npc"}`;
     const npc =
       cast.npcPersona !== undefined
-        ? new AgentNpc({ persona: cast.npcPersona, generate: npcGenerate })
+        ? new AgentNpc({
+            persona: cast.npcPersona,
+            generate: observe ? (p) => npcGenerate(p, observe(npcLabel)) : npcGenerate,
+          })
         : undefined;
 
     // #44 — the campaign's mechanical judge (BCDice in prod). With it, `/check`
@@ -256,6 +279,7 @@ export function makeRunners(deps: RunnerDeps): Runners {
       runQuery: () => dmQueryStream(referee, systemPrompt),
       isSessionActive: deps.isSessionActive,
       onError: (e) => onError(`aidm:${ctx.channelId}`, e),
+      ...(observe && { onMessage: observe("aidm") }),
     }).catch((e) => onError(`aidm-driver:${ctx.channelId}`, e));
 
     return { deliver: (m) => inbox.deliver(m) };
