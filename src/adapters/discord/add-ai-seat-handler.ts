@@ -32,8 +32,12 @@ export interface AddAiSeatDeps {
   readonly resolveActor: (event: CommandEvent) => ActorId;
   /** Read the campaign's authoritative legality NOW (bible knobs + exceptions). */
   readonly legality: (event: CommandEvent) => CampaignLegality;
-  /** The mechanical sheet to attach to the draft (v1: caller-supplied). */
-  readonly sheetFor: (event: CommandEvent) => CharacterSheet;
+  /**
+   * The mechanical sheet to attach to the draft, chosen by the RESOLVED archetype
+   * (#47 — live: `sheetForArchetype(systemFor(event), archetype)`), so a 游侠 seat
+   * gets ranger values and a 医生 a doctor's skills, not one system baseline.
+   */
+  readonly sheetFor: (event: CommandEvent, archetype: string) => CharacterSheet;
   /**
    * The default genesis archetype when the owner gives no `archetype` option (#47).
    * System-aware (live: `defaultArchetypeFor(systemFor(event))`), so a CoC campaign's
@@ -63,7 +67,7 @@ export function createAddAiSeatHandler(deps: AddAiSeatDeps): CommandHandler {
       campaignId: campaign,
       actorId: actor,
       archetype,
-      sheet: deps.sheetFor(event),
+      sheet: deps.sheetFor(event, archetype),
       legality: deps.legality(event),
       verifierLlm: deps.verifierLlm(event),
       reviser: deps.reviser,

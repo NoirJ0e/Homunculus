@@ -6,7 +6,11 @@
  * and system-correct (no cross-system fields leaking in).
  */
 import { describe, expect, test } from "vitest";
-import { defaultArchetypeFor, defaultSheetFor } from "../../src/runtime/card-creation.js";
+import {
+  defaultArchetypeFor,
+  defaultSheetFor,
+  sheetForArchetype,
+} from "../../src/runtime/card-creation.js";
 
 const COC7_ATTRS = ["力量", "体质", "体型", "敏捷", "外貌", "智力", "意志", "教育"];
 const DND5E_ABILITIES = ["力量", "敏捷", "体质", "智力", "感知", "魅力"];
@@ -63,5 +67,55 @@ describe("default archetype — system-aware", () => {
 
   test("D&D5e defaults to 战士", () => {
     expect(defaultArchetypeFor("dnd5e")).toBe("战士");
+  });
+});
+
+/**
+ * archetype → mechanical sheet (#47 core). The structured sheet must actually
+ * VARY by archetype — not collapse to one system baseline — so a 游侠 rolls with
+ * ranger values and a 医生 with a doctor's skills. CoC7 checks read `skills`;
+ * D&D5e checks read `attributes` + `proficiencies` (see bcdice-dice), so those are
+ * the fields that must differ.
+ */
+describe("sheetForArchetype — archetype shapes the mechanical sheet", () => {
+  test("CoC7: different archetypes yield different occupation AND skills", () => {
+    const a = sheetForArchetype("coc7", "调查员");
+    const b = sheetForArchetype("coc7", "医生");
+    expect(a.system).toBe("coc7");
+    expect(b.system).toBe("coc7");
+    expect(a.occupation).not.toBe(b.occupation);
+    // The doctor's check-driving skills differ from the generic investigator's.
+    expect(a.skills).not.toEqual(b.skills);
+  });
+
+  test("D&D5e: different archetypes yield different class AND ability emphasis", () => {
+    const fighter = sheetForArchetype("dnd5e", "战士");
+    const wizard = sheetForArchetype("dnd5e", "法师");
+    expect(fighter.characterClass).not.toBe(wizard.characterClass);
+    // The wizard leans 智力, the fighter 力量 — the modifier-driving scores differ.
+    expect(fighter.attributes?.["力量"]).not.toBe(wizard.attributes?.["力量"]);
+    expect(fighter.attributes?.["智力"]).not.toBe(wizard.attributes?.["智力"]);
+    expect(fighter.proficiencies).not.toEqual(wizard.proficiencies);
+  });
+
+  test("unknown archetype falls back to the system baseline", () => {
+    expect(sheetForArchetype("coc7", "忍者")).toEqual(defaultSheetFor("coc7"));
+    expect(sheetForArchetype("dnd5e", "武僧")).toEqual(defaultSheetFor("dnd5e"));
+  });
+
+  test("the default archetype's sheet IS the system baseline (consistency)", () => {
+    expect(sheetForArchetype("coc7", defaultArchetypeFor("coc7"))).toEqual(defaultSheetFor("coc7"));
+    expect(sheetForArchetype("dnd5e", defaultArchetypeFor("dnd5e"))).toEqual(defaultSheetFor("dnd5e"));
+  });
+
+  test("a non-default archetype stays system-correct (no cross-system fields)", () => {
+    const doctor = sheetForArchetype("coc7", "医生");
+    expect(doctor.race).toBeUndefined();
+    expect(doctor.characterClass).toBeUndefined();
+    expect(doctor.proficiencies).toBeUndefined();
+
+    const wizard = sheetForArchetype("dnd5e", "法师");
+    expect(wizard.occupation).toBeUndefined();
+    expect(wizard.sanity).toBeUndefined();
   });
 });

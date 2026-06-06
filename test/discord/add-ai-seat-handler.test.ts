@@ -37,12 +37,15 @@ interface Harness {
   roster: RosterEntry[];
   binds: { souls: string[]; sheets: number; approved: string[]; lastSoul?: Soul };
   replies: string[];
+  /** Archetypes the `sheetFor` seam was asked for (proves archetype → sheet wiring). */
+  sheetArchetypes: string[];
 }
 
 function makeHarness(verdicts: Array<{ passed: boolean; feedback: string }>): Harness {
   const roster: RosterEntry[] = [];
   const binds = { souls: [] as string[], sheets: 0, approved: [] as string[] } as Harness["binds"];
   const replies: string[] = [];
+  const sheetArchetypes: string[] = [];
 
   let i = 0;
   const llm: CardVerifierLlm = {
@@ -71,7 +74,11 @@ function makeHarness(verdicts: Array<{ passed: boolean; feedback: string }>): Ha
     resolveCampaign: () => camp,
     resolveActor: (event) => actorId(`npc-${event.options["name"] ?? "teammate"}`),
     legality: (): CampaignLegality => ({ bespokeRules: {}, exceptions: [] }),
-    sheetFor: () => sheet,
+    // The sheet is chosen by the RESOLVED archetype (#47), so capture what we're asked for.
+    sheetFor: (_event, archetype) => {
+      sheetArchetypes.push(archetype);
+      return sheet;
+    },
     // System-aware default (#47): a CoC campaign's empty seat is an investigator.
     defaultArchetype: () => "调查员",
     verifierLlm: () => llm,
@@ -83,7 +90,7 @@ function makeHarness(verdicts: Array<{ passed: boolean; feedback: string }>): Ha
     maxRevisions: 1,
   });
 
-  return { handler, roster, binds, replies };
+  return { handler, roster, binds, replies, sheetArchetypes };
 }
 
 describe("add-ai-seat handler", () => {
@@ -110,6 +117,16 @@ describe("add-ai-seat handler", () => {
     expect(h.binds.lastSoul).toBeDefined();
     // The bound persona is the CoC investigator, NOT the D&D fighter preset.
     expect(h.binds.lastSoul?.personaCore.name).not.toBe("铁拳·冈");
+    // …and the SHEET is chosen by that same resolved archetype (#47 wiring).
+    expect(h.sheetArchetypes).toEqual(["调查员"]);
+  });
+
+  test("explicit archetype option drives the sheet choice", async () => {
+    const h = makeHarness([{ passed: true, feedback: "通过" }]);
+
+    await h.handler(event({ options: { archetype: "游侠" } }));
+
+    expect(h.sheetArchetypes).toEqual(["游侠"]);
   });
 
   test("verifier rejects past the cap → NOT bound, no approved seat, owner-fallback reply", async () => {

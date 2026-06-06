@@ -36,7 +36,7 @@ import { CardCreationSessionTable } from "./runtime/card-creation-session.js";
 import { CardVerifySessionTable } from "./runtime/card-verify-session.js";
 import { buildLegality, type CampaignLegality } from "./runtime/card-verifier.js";
 import { readCardUnderReview } from "./runtime/read-card-under-review.js";
-import { defaultArchetypeFor, defaultSheetFor } from "./runtime/card-creation.js";
+import { defaultArchetypeFor, defaultSheetFor, sheetForArchetype } from "./runtime/card-creation.js";
 import { campaignId, actorId, type CampaignId } from "./domain/ids.js";
 import {
   createCommandSource,
@@ -249,7 +249,7 @@ const commandSet = createCommandSet({
     resolveActor: (event) =>
       actorId(event.options["name"] ?? `ai:${event.options["archetype"] ?? defaultArchetypeFor(systemFor(event))}`),
     legality: readLegality,
-    sheetFor: (event) => defaultSheetFor(systemFor(event)),
+    sheetFor: (event, archetype) => sheetForArchetype(systemFor(event), archetype),
     defaultArchetype: (event) => defaultArchetypeFor(systemFor(event)),
     verifierLlm: () => verifierLlm,
     reviser: aiReviser,
