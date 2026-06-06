@@ -8,6 +8,7 @@ import type { RosterStore } from "../../src/ports/roster-store.js";
 import type { RosterEntry } from "../../src/domain/card-lifecycle.js";
 import type { CampaignLegality, CardVerifierLlm, VerifiableCard } from "../../src/runtime/card-verifier.js";
 import type { AiReviser } from "../../src/runtime/ai-seat.js";
+import type { Soul } from "../../src/domain/soul.js";
 import type { CommandEvent } from "../../src/adapters/discord/command-router.js";
 import { createAddAiSeatHandler } from "../../src/adapters/discord/add-ai-seat-handler.js";
 
@@ -34,13 +35,13 @@ const event = (over: Partial<CommandEvent> = {}): CommandEvent => ({
 interface Harness {
   handler: ReturnType<typeof createAddAiSeatHandler>;
   roster: RosterEntry[];
-  binds: { souls: string[]; sheets: number; approved: string[] };
+  binds: { souls: string[]; sheets: number; approved: string[]; lastSoul?: Soul };
   replies: string[];
 }
 
 function makeHarness(verdicts: Array<{ passed: boolean; feedback: string }>): Harness {
   const roster: RosterEntry[] = [];
-  const binds = { souls: [] as string[], sheets: 0, approved: [] as string[] };
+  const binds = { souls: [] as string[], sheets: 0, approved: [] as string[] } as Harness["binds"];
   const replies: string[] = [];
 
   let i = 0;
@@ -52,7 +53,13 @@ function makeHarness(verdicts: Array<{ passed: boolean; feedback: string }>): Ha
     sheet: card.sheet,
   });
 
-  const soulStore: SoulStore = { load: () => undefined, save: (s) => binds.souls.push(s.id) };
+  const soulStore: SoulStore = {
+    load: () => undefined,
+    save: (s) => {
+      binds.souls.push(s.id);
+      binds.lastSoul = s;
+    },
+  };
   const cardWriter: CardWriter = { write: () => { binds.sheets += 1; } };
   const rosterStore: RosterStore = {
     get: () => roster,
@@ -65,6 +72,8 @@ function makeHarness(verdicts: Array<{ passed: boolean; feedback: string }>): Ha
     resolveActor: (event) => actorId(`npc-${event.options["name"] ?? "teammate"}`),
     legality: (): CampaignLegality => ({ bespokeRules: {}, exceptions: [] }),
     sheetFor: () => sheet,
+    // System-aware default (#47): a CoC campaign's empty seat is an investigator.
+    defaultArchetype: () => "调查员",
     verifierLlm: () => llm,
     reviser,
     soulStore,
@@ -90,6 +99,17 @@ describe("add-ai-seat handler", () => {
     expect(h.roster).toHaveLength(1);
     expect(h.roster[0]).toMatchObject({ actorId: "npc-teammate", kind: "ai", approved: true });
     expect(h.replies.join("\n")).toMatch(/绑定|过审|已加入/);
+  });
+
+  test("no archetype option → uses the system-aware default seam (not a hardcoded 战士)", async () => {
+    const h = makeHarness([{ passed: true, feedback: "通过" }]);
+
+    // No archetype in options → handler falls back to deps.defaultArchetype (调查员).
+    await h.handler(event({ options: {} }));
+
+    expect(h.binds.lastSoul).toBeDefined();
+    // The bound persona is the CoC investigator, NOT the D&D fighter preset.
+    expect(h.binds.lastSoul?.personaCore.name).not.toBe("铁拳·冈");
   });
 
   test("verifier rejects past the cap → NOT bound, no approved seat, owner-fallback reply", async () => {

@@ -6,7 +6,7 @@
  * and system-correct (no cross-system fields leaking in).
  */
 import { describe, expect, test } from "vitest";
-import { defaultSheetFor } from "../../src/runtime/card-creation.js";
+import { defaultArchetypeFor, defaultSheetFor } from "../../src/runtime/card-creation.js";
 
 const COC7_ATTRS = ["力量", "体质", "体型", "敏捷", "外貌", "智力", "意志", "教育"];
 const DND5E_ABILITIES = ["力量", "敏捷", "体质", "智力", "感知", "魅力"];
@@ -46,5 +46,22 @@ describe("structured default sheet — D&D5e", () => {
   test("carries NO CoC7-only fields (system-correct)", () => {
     expect(s.occupation).toBeUndefined();
     expect(s.sanity).toBeUndefined();
+  });
+});
+
+/**
+ * Default ARCHETYPE is system-aware too (#47). The genesis persona must match the
+ * campaign's rule system: a CoC7 campaign's empty seat fills with an investigator,
+ * NOT the D&D fighter "战士" (the bug — a 1920s 克苏鲁 团长出「AI 战士」).
+ */
+describe("default archetype — system-aware", () => {
+  test("CoC7 defaults to a CoC investigator archetype, not a D&D class", () => {
+    const a = defaultArchetypeFor("coc7");
+    expect(a).toBe("调查员");
+    expect(a).not.toBe("战士");
+  });
+
+  test("D&D5e defaults to 战士", () => {
+    expect(defaultArchetypeFor("dnd5e")).toBe("战士");
   });
 });

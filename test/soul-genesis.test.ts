@@ -106,4 +106,25 @@ describe("#12 soul genesis — structured persona core from seed", () => {
     // Same archetype → same personaCore content (different id is expected)
     expect(s1.personaCore).toEqual(s2.personaCore);
   });
+
+  // --- CoC investigator archetypes (#47 — system-aware genesis) ---
+  // A CoC campaign must NOT conjure a D&D fighter ("铁拳·冈") nor fall through to
+  // the generic FALLBACK ("无名旅者"); CoC archetypes resolve to real investigators.
+
+  test("genesisFullAuto resolves CoC archetypes to distinct, non-fighter, non-fallback personas", () => {
+    const cocArchetypes = ["调查员", "记者", "私家侦探", "医生", "教授", "古董商"];
+    const names = new Set<string>();
+    for (const archetype of cocArchetypes) {
+      const soul = genesisFullAuto(actorId(`soul:${archetype}`), archetype);
+      expect(soul.personaCore.name.trim().length).toBeGreaterThan(0);
+      expect(soul.personaCore.temperament.trim().length).toBeGreaterThan(0);
+      expect(soul.personaCore.goals.length).toBeGreaterThan(0);
+      // NOT the D&D fighter preset, NOT the generic fallback.
+      expect(soul.personaCore.name).not.toBe("铁拳·冈");
+      expect(soul.personaCore.name).not.toBe("无名旅者");
+      names.add(soul.personaCore.name);
+    }
+    // Each CoC archetype is its own preset, not all collapsing to one.
+    expect(names.size).toBe(cocArchetypes.length);
+  });
 });

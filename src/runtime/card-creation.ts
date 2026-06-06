@@ -77,6 +77,17 @@ export function defaultSheetFor(system: DiceSystem): CharacterSheet {
 }
 
 /**
+ * The default genesis ARCHETYPE matching a campaign's rule SYSTEM (#47). Symmetric
+ * to {@link defaultSheetFor}: the persona must be題材相符 too, so a CoC7 campaign's
+ * empty seat fills with an investigator ("调查员") rather than the D&D fighter
+ * "战士" (the bug — a 1920s 克苏鲁 团冒出「AI 战士」). Each value is a key in the
+ * genesis `ARCHETYPE_PRESETS`, so it resolves to a real system-appropriate persona.
+ */
+export function defaultArchetypeFor(system: DiceSystem): string {
+  return system === "dnd5e" ? "战士" : "调查员";
+}
+
+/**
  * Drain the open-card assistant's streaming reply and post each text block into
  * the thread as 开卡向导. Thin wrapper over {@link postAssistantText} pinning the
  * persona; the live runner passes the real `query()` stream.

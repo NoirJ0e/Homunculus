@@ -36,7 +36,7 @@ import { CardCreationSessionTable } from "./runtime/card-creation-session.js";
 import { CardVerifySessionTable } from "./runtime/card-verify-session.js";
 import { buildLegality, type CampaignLegality } from "./runtime/card-verifier.js";
 import { readCardUnderReview } from "./runtime/read-card-under-review.js";
-import { defaultSheetFor } from "./runtime/card-creation.js";
+import { defaultArchetypeFor, defaultSheetFor } from "./runtime/card-creation.js";
 import { campaignId, actorId, type CampaignId } from "./domain/ids.js";
 import {
   createCommandSource,
@@ -230,7 +230,7 @@ const commandSet = createCommandSet({
       readCardUnderReview(event.threadId ?? event.channelId, {
         sessionFor: (threadId) => cardSessions.get(threadId),
         actorId: actorId(event.invokerId),
-        fallbackArchetype: cfg.defaultArchetype,
+        fallbackArchetype: defaultArchetypeFor(systemFor(event)),
         fallbackSheet: defaultSheetFor(systemFor(event)),
       }),
     readLegality,
@@ -246,9 +246,11 @@ const commandSet = createCommandSet({
   // on cap-exhaustion the owner is notified and the seat is NOT bound.
   addAiSeat: createAddAiSeatHandler({
     resolveCampaign,
-    resolveActor: (event) => actorId(event.options["name"] ?? `ai:${event.options["archetype"] ?? cfg.defaultArchetype}`),
+    resolveActor: (event) =>
+      actorId(event.options["name"] ?? `ai:${event.options["archetype"] ?? defaultArchetypeFor(systemFor(event))}`),
     legality: readLegality,
     sheetFor: (event) => defaultSheetFor(systemFor(event)),
+    defaultArchetype: (event) => defaultArchetypeFor(systemFor(event)),
     verifierLlm: () => verifierLlm,
     reviser: aiReviser,
     soulStore,

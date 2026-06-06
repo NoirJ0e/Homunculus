@@ -34,6 +34,12 @@ export interface AddAiSeatDeps {
   readonly legality: (event: CommandEvent) => CampaignLegality;
   /** The mechanical sheet to attach to the draft (v1: caller-supplied). */
   readonly sheetFor: (event: CommandEvent) => CharacterSheet;
+  /**
+   * The default genesis archetype when the owner gives no `archetype` option (#47).
+   * System-aware (live: `defaultArchetypeFor(systemFor(event))`), so a CoC campaign's
+   * empty seat fills with an investigator, NOT a hardcoded D&D "战士".
+   */
+  readonly defaultArchetype: (event: CommandEvent) => string;
   /** The SAME provenance-agnostic verifier the human path uses (#35). */
   readonly verifierLlm: (event: CommandEvent) => CardVerifierLlm;
   /** Automated reviser seam (LLM in prod, stub in tests). */
@@ -51,7 +57,7 @@ export function createAddAiSeatHandler(deps: AddAiSeatDeps): CommandHandler {
   return async (event: CommandEvent): Promise<void> => {
     const campaign = deps.resolveCampaign(event);
     const actor = deps.resolveActor(event);
-    const archetype = event.options["archetype"] ?? "战士";
+    const archetype = event.options["archetype"] ?? deps.defaultArchetype(event);
 
     const result = await addAiSeat({
       campaignId: campaign,
