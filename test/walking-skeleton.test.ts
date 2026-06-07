@@ -27,7 +27,7 @@ describe("#17 DM tool-flow drives one round, engine paces the NPCs", () => {
       "npc-rogue": [{ kind: "speak", prose: "罗格悄悄把手探向腰间的匕首。" }],
       "npc-cleric": [{ kind: "pass" }],
     });
-    const referee = new Referee({ aidmId: aidm, substrate, npc });
+    const referee = new Referee({ aidmId: aidm, substrate, npcFor: () => npc });
 
     const flow = await runDmToolFlow(referee, [
       { tool: "narrate", sceneId: tavern, prose: "夜风灌进酒馆。门口的陌生人盯着你们。" },
@@ -62,7 +62,7 @@ describe("#17 DM tool-flow drives one round, engine paces the NPCs", () => {
       },
       { "npc-rogue": false, "npc-cleric": true }, // wake-gate verdict
     );
-    const referee = new Referee({ aidmId: aidm, substrate, npc });
+    const referee = new Referee({ aidmId: aidm, substrate, npcFor: () => npc });
 
     const flow = await runDmToolFlow(referee, [
       { tool: "narrate", sceneId: tavern, prose: "钟楼传来钟声。" },
@@ -85,7 +85,7 @@ describe("#17 DM tool-flow drives one round, engine paces the NPCs", () => {
       "npc-rogue": [{ kind: "speak", prose: "罗格踢翻了酒桌。" }],
       "npc-cleric": [{ kind: "speak", prose: "牧师皱眉。" }],
     });
-    const referee = new Referee({ aidmId: aidm, substrate, npc });
+    const referee = new Referee({ aidmId: aidm, substrate, npcFor: () => npc });
 
     await runDmToolFlow(referee, [
       { tool: "narrate", sceneId: tavern, prose: "酒馆陷入寂静。" },
@@ -107,7 +107,7 @@ describe("#17 DM tool-flow drives one round, engine paces the NPCs", () => {
     const referee = new Referee({
       aidmId: aidm,
       substrate,
-      npc,
+      npcFor: () => npc,
       roster: mapRoster({ "human-1": "human", "npc-rogue": "ai" }),
       humanInbox: new FakeHumanInbox({ "human-1": undefined }), // silent
     });

@@ -96,7 +96,7 @@ describe("check flow — DM calls, the called character rolls its own pending", 
     const dice = new FakeDice([
       { actorId: inv, skill: "侦查", total: 37, success: true, detail: "d100=37 ≤ 60 侦查 → 成功" },
     ]);
-    const referee = new Referee({ aidmId: actorId("aidm"), substrate, npc, dice });
+    const referee = new Referee({ aidmId: actorId("aidm"), substrate, npcFor: () => npc, dice });
 
     await referee.callCheck(inv, "侦查", "hard");
     const flow = await runDmToolFlow(referee, [
@@ -119,7 +119,7 @@ describe("check flow — DM calls, the called character rolls its own pending", 
     const cards = new FakeCardStore({ "inv-1": { system: "coc7", skills: { 侦查: 60 } } });
     const dice = new NativeDice(cards, () => 0.36); // d100 = 37
     const npc = new FakeNpc({ "inv-1": [{ kind: "roll" }] });
-    const referee = new Referee({ aidmId: actorId("aidm"), substrate, npc, dice, cards });
+    const referee = new Referee({ aidmId: actorId("aidm"), substrate, npcFor: () => npc, dice, cards });
 
     await referee.callCheck(inv, "侦查");
     await runDmToolFlow(referee, [{ tool: "await_actors", sceneId: scene, order: [inv] }]);
@@ -133,7 +133,7 @@ describe("check flow — DM calls, the called character rolls its own pending", 
     const substrate = new FakeSubstrate();
     const npc = new FakeNpc({ "inv-1": [{ kind: "roll" }] });
     const dice = new FakeDice([]); // would throw if called
-    const referee = new Referee({ aidmId: actorId("aidm"), substrate, npc, dice });
+    const referee = new Referee({ aidmId: actorId("aidm"), substrate, npcFor: () => npc, dice });
 
     // No call_check for inv-1: the roll has nothing of its own to resolve.
     const flow = await runDmToolFlow(referee, [
@@ -179,7 +179,7 @@ describe("#44 check live loop — mode + advantage thread into the RollRequest",
     const dice = new FakeDice([
       { actorId: hero, skill: "攻击", total: 19, success: true, detail: "AT+5>=15 → 19 → 成功（攻击）" },
     ]);
-    const referee = new Referee({ aidmId: actorId("aidm"), substrate, npc, dice });
+    const referee = new Referee({ aidmId: actorId("aidm"), substrate, npcFor: () => npc, dice });
 
     // The AIDM declares an ATTACK check with an AC.
     await referee.callCheck(hero, "攻击", "ac15", "attack");

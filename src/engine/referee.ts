@@ -20,6 +20,11 @@ import {
 } from "./milestone-cursor.js";
 import { initClock, tick, dmView, playerSignal, type WorldClockState } from "./world-clock.js";
 
+/** True when prose is empty or only whitespace — nothing worth posting (#51). */
+function isBlank(prose: string): boolean {
+  return prose.trim().length === 0;
+}
+
 /**
  * Referee — the engine's shared state + the tool handlers the DM/NPC agents
  * call (ADR-0009). The control flow is half-inverted: the DM is a self-driving
@@ -39,8 +44,14 @@ export interface RefereeDeps {
   readonly substrate: SubstratePort;
   /** Initial scene membership (sceneId → actor ids); the AIDM grows/shrinks it. */
   readonly scenes?: Record<string, readonly string[]>;
-  /** Drives NPCs the engine pulls up in `await_actors`. */
-  readonly npc?: NpcPort;
+  /**
+   * Resolves the NpcPort that drives a given actor (#51 修共脑 Bug1). Each AI
+   * teammate is its OWN agent — its own persona, its own horizon — so the engine
+   * looks the port up per actor instead of holding one shared `npc`. Returns
+   * undefined when the actor has no agent backing (→ the slot passes). This seam
+   * is what locks "绝不共脑": two teammates can never collapse onto one brain.
+   */
+  readonly npcFor?: (actor: ActorId) => NpcPort | undefined;
   /** Inbound side for awaited humans; `undefined` poll = silence (ADR-0003). */
   readonly humanInbox?: HumanInboxPort;
   /** Who is human vs AI (ADR-0003). Unknown actors default to AI. */
@@ -412,6 +423,11 @@ export class Referee {
     if (turn.kind === "roll") {
       return this.resolveRoll(scene, actor, events, turn.advantage);
     }
+    if (isBlank(turn.prose)) {
+      // 空 prose 守卫 (#51, 修 Bug4): a blank human turn is a pass, not a post.
+      events.push({ kind: "actor-passed", actorId: actor });
+      return { kind: "passed" };
+    }
     const post = await this.post(scene, actor, turn.prose);
     events.push({ kind: "actor-acted", actorId: actor });
     return { kind: "acted", post };
@@ -422,7 +438,7 @@ export class Referee {
     actor: ActorId,
     events: AwaitEvent[],
   ): Promise<SlotResult> {
-    const npc = this.deps.npc;
+    const npc = this.deps.npcFor?.(actor);
     if (!npc) {
       events.push({ kind: "actor-passed", actorId: actor });
       return { kind: "passed" };
@@ -437,7 +453,9 @@ export class Referee {
     if (turn.kind === "roll") {
       return this.resolveRoll(scene, actor, events);
     }
-    if (turn.kind === "pass") {
+    if (turn.kind === "pass" || isBlank(turn.prose)) {
+      // 空 prose 守卫 (#51, 修 Bug4): empty/whitespace prose never reaches the
+      // substrate (which rejects "Cannot send an empty message") — it is a pass.
       events.push({ kind: "actor-passed", actorId: actor });
       return { kind: "passed" };
     }

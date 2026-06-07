@@ -125,6 +125,13 @@ const runners = makeRunners({
   makeDice,
   checkSessions,
   ...(makeTraceSink && { makeTraceSink }),
+  // #53 — agent-slot timeout/retry knobs (.env NPC_GEN_*); a stuck teammate
+  // agent is abandoned + retried, then passes, so it never freezes the table.
+  npcTimeout: {
+    timeoutMs: cfg.npcGenTimeoutMs,
+    maxAttempts: cfg.npcGenMaxAttempts,
+    totalBudgetMs: cfg.npcGenTotalBudgetMs,
+  },
 });
 
 // #34 — open-card sessions are command-bound (threadId → session) by the

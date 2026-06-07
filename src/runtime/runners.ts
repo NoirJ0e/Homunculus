@@ -7,6 +7,11 @@ import { DiscordSubstrate } from "../adapters/discord/discord-substrate.js";
 import { Referee } from "../engine/referee.js";
 import { mapRoster } from "../engine/roster.js";
 import { AgentNpc } from "../adapters/agent-sdk/agent-npc.js";
+import {
+  withTimeoutRetry,
+  realClock,
+  type TimeoutRetryOptions,
+} from "../adapters/agent-sdk/timeout-npc.js";
 import { buildDmSystemPrompt } from "../adapters/agent-sdk/dm-prompt.js";
 import { buildConciergePrompt } from "../adapters/agent-sdk/concierge-prompt.js";
 import { createDiscordAdminMcpServer } from "../adapters/agent-sdk/discord-admin-mcp.js";
@@ -113,6 +118,13 @@ export interface RunnerDeps {
    * (`data/traces/`). Optional: undefined → no trace.
    */
   readonly makeTraceSink?: (campaign: CampaignId, runId: string) => TraceSink;
+  /**
+   * Agent-slot timeout/retry knobs (#53, ADR-0003 — adapter layer, not the engine).
+   * When present, each teammate's `generate` is wrapped so a stuck agent is
+   * abandoned + retried, then passes — one slow agent never freezes the table.
+   * Wired from RuntimeConfig (`npcGen*`) in the composition root; absent → raw.
+   */
+  readonly npcTimeout?: TimeoutRetryOptions;
 }
 
 export interface Runners {
@@ -196,6 +208,25 @@ export function makeRunners(deps: RunnerDeps): Runners {
           }
       : undefined;
 
+    // One NpcPort per teammate (#51 修共脑): each gets its OWN AgentNpc, its own
+    // persona, and its own `generate` — traced under its REAL name (no more
+    // hardcoded `npc:teammates[0]`) and, when configured, wrapped with the #53
+    // timeout/retry guard so a stuck agent passes instead of freezing the table.
+    const makeNpc = ({
+      soul,
+      persona,
+    }: {
+      soul: import("../domain/soul.js").Soul;
+      persona: string;
+    }): AgentNpc => {
+      const label = `npc:${soul.personaCore.name}`;
+      const base = observe ? (p: string) => npcGenerate(p, observe(label)) : npcGenerate;
+      const generate = deps.npcTimeout
+        ? withTimeoutRetry(base, deps.npcTimeout, realClock)
+        : base;
+      return new AgentNpc({ persona, generate });
+    };
+
     // Load the campaign's verified, bound AI teammates from the stores — no more
     // inlined genesis. The NPC persona comes from the SAVED soul.
     const cast = assembleAidmCast({
@@ -203,6 +234,7 @@ export function makeRunners(deps: RunnerDeps): Runners {
       soulStore: deps.soulStore,
       campaign,
       humanId: human,
+      makeNpc,
     });
     if (cast.degraded) {
       onError(`aidm:${ctx.channelId}`, new Error("no bound AI teammate — AIDM opening solo"));
@@ -216,14 +248,6 @@ export function makeRunners(deps: RunnerDeps): Runners {
 
     const inbox = new PushInbox();
     const roster = mapRoster(cast.rosterKinds);
-    const npcLabel = `npc:${cast.teammates[0]?.personaCore.name ?? "npc"}`;
-    const npc =
-      cast.npcPersona !== undefined
-        ? new AgentNpc({
-            persona: cast.npcPersona,
-            generate: observe ? (p) => npcGenerate(p, observe(npcLabel)) : npcGenerate,
-          })
-        : undefined;
 
     // #44 — the campaign's mechanical judge (BCDice in prod). With it, `/check`
     // and NPC rolls resolve real dice; without it a roll stays a pass.
@@ -240,7 +264,7 @@ export function makeRunners(deps: RunnerDeps): Runners {
       substrate,
       humanInbox: inbox,
       roster,
-      ...(npc !== undefined && { npc }),
+      npcFor: cast.npcFor,
       ...(dice !== undefined && { dice }),
       ...(bible !== undefined && { campaign: bible }),
     });

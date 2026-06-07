@@ -2,6 +2,7 @@ import type { ActorId, CampaignId } from "../domain/ids.js";
 import type { Soul } from "../domain/soul.js";
 import type { SoulStore } from "../ports/soul-store.js";
 import type { RosterStore } from "../ports/roster-store.js";
+import type { NpcPort } from "../ports/npc.js";
 import type { ActorKind } from "../engine/roster.js";
 import type { ActorPersona } from "../adapters/discord/scene-threads.js";
 import { loadBoundTeammates } from "./load-teammates.js";
@@ -30,13 +31,27 @@ export interface AidmCastInput {
   readonly humanId: ActorId;
   /** Username for the human in the cast (defaults to "玩家"). */
   readonly humanUsername?: string;
+  /**
+   * Builds the NpcPort for ONE teammate soul (#51 修共脑 Bug1). Each teammate is
+   * its own agent — its own persona, its own brain — so the cast calls this once
+   * per teammate, never sharing a port. Production passes a factory that wraps a
+   * live AgentNpc (its `generate` traced under the NPC's real name); tests pass a
+   * fake. Omit → no ports are built (npcFor always undefined).
+   */
+  readonly makeNpc?: (input: { soul: Soul; persona: string }) => NpcPort;
 }
 
 export interface AidmCast {
   /** The bound AI teammate souls, read from the store (empty when none). */
   readonly teammates: readonly Soul[];
-  /** Persona block for the first teammate NPC; undefined when degraded. */
-  readonly npcPersona?: string;
+  /**
+   * Resolves the NpcPort driving a given actor (#51). One distinct port per
+   * teammate (built via `makeNpc` from its own persona); undefined for the human,
+   * unknown actors, or when no `makeNpc` factory was supplied. This is the seam
+   * handed to the Referee's `npcFor` — it physically forbids two teammates from
+   * collapsing onto one brain.
+   */
+  readonly npcFor: (actor: ActorId) => NpcPort | undefined;
   /** Webhook personas for the human + teammate seats (the runner prepends aidm). */
   readonly personas: readonly ActorPersona[];
   /** actorId → kind for the engine roster (human + teammates). */
@@ -62,15 +77,21 @@ export function assembleAidmCast(input: AidmCastInput): AidmCast {
 
   const personas: ActorPersona[] = [{ actorId: input.humanId, username: humanUsername }];
   const rosterKinds: Record<string, ActorKind> = { [input.humanId]: "human" };
+
+  // One NpcPort per teammate, each built from ITS OWN persona core (#51). The map
+  // is the anti-shared-brain lock: an actor resolves only to the port made for it.
+  const ports = new Map<string, NpcPort>();
   for (const soul of teammates) {
     personas.push({ actorId: soul.id, username: soul.personaCore.name });
     rosterKinds[soul.id] = "ai";
+    if (input.makeNpc) {
+      ports.set(soul.id, input.makeNpc({ soul, persona: buildNpcPersona(soul) }));
+    }
   }
 
-  const first = teammates[0];
   return {
     teammates,
-    ...(first !== undefined ? { npcPersona: buildNpcPersona(first) } : {}),
+    npcFor: (actor: ActorId) => ports.get(actor),
     personas,
     rosterKinds,
     degraded: teammates.length === 0,
