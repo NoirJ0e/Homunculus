@@ -10,7 +10,7 @@ import { SceneBook } from "./scenes.js";
 import type { Roster, ActorKind } from "./roster.js";
 import type { ControllerRegistry } from "./controller.js";
 import { runCombatRound, type SlotResult } from "./combat-round.js";
-import type { PauseState } from "./pacing.js";
+import { pauseFrom, type PauseState } from "./pacing.js";
 import type { CampaignBible } from "../domain/campaign.js";
 import {
   initCursor,
@@ -56,6 +56,14 @@ export interface RefereeDeps {
   readonly humanInbox?: HumanInboxPort;
   /** Who is human vs AI (ADR-0003). Unknown actors default to AI. */
   readonly roster?: Roster;
+  /**
+   * The non-DM actors at the table this session (#52). `nominate` resets each
+   * round's `remaining` to this set, so the round invariants (only nominate a
+   * present actor, full coverage before a new round) have an authoritative roster
+   * to check against. When omitted, the round roster falls back to scene
+   * membership. The AIDM is never included.
+   */
+  readonly presentActors?: readonly ActorId[];
   /** Soul→controller bindings (ADR-0006); supersedes `roster` and adds `inert`. */
   readonly controllers?: ControllerRegistry;
   /** The dice/judge authority — resolves called checks (ADR-0001 修订, v1 = NativeDice). */
@@ -96,6 +104,33 @@ export type AwaitEvent =
 export type AwaitOutcome =
   | { readonly status: "released"; readonly posts: readonly Post[]; readonly events: readonly AwaitEvent[] }
   | { readonly status: "held"; readonly pause: PauseState; readonly events: readonly AwaitEvent[] };
+
+/**
+ * The result of one `nominate` call (#52, 串行点名). Every variant carries the
+ * round's remaining (not-yet-nominated) actors so the DM always knows who is
+ * left this round — and, except when held/rejected, the nominated actor's actual
+ * this-beat result, so the DM SEES what happened (修 Bug2「失明」) and can decide
+ * whether to 喊检定 / how to point next.
+ */
+export type NominateResult =
+  /** Nomination refused by the round invariant (点重复 / 点不在场). State unchanged. */
+  | { readonly kind: "rejected"; readonly reason: string; readonly remaining: readonly ActorId[] }
+  /** A silent human (真人无限期等 = 暂停/存档). The slot stays open for resume. */
+  | { readonly kind: "held"; readonly actor: ActorId; readonly pause: PauseState; readonly remaining: readonly ActorId[] }
+  /** The actor contributed prose. */
+  | { readonly kind: "acted"; readonly actor: ActorId; readonly prose: string; readonly remaining: readonly ActorId[] }
+  /** The actor passed (explicit pass / wake-gated / blank / agent had nothing). */
+  | { readonly kind: "passed"; readonly actor: ActorId; readonly remaining: readonly ActorId[] }
+  /** The actor rolled a check the AIDM had called; the dice authority resolved it. */
+  | {
+      readonly kind: "checked";
+      readonly actor: ActorId;
+      readonly skill: string;
+      readonly total: number;
+      readonly success: boolean;
+      readonly detail: string;
+      readonly remaining: readonly ActorId[];
+    };
 
 /**
  * A fully serializable snapshot of a Referee's playable state at one beat.
@@ -139,6 +174,13 @@ export class Referee {
   private readonly clocks = new Map<string, WorldClockState>();
   /** The last barrier hold state, updated on every held `await_actors`. */
   private lastPause: PauseState | null = null;
+  /**
+   * This round's not-yet-nominated actors (#52). `null` until the first
+   * `nominate` of a round starts it; emptied as actors are nominated; reset to
+   * the full round roster when the next `nominate` opens a fresh round. This is
+   * the engine invariant that backs serial 点名: 全员必覆盖才进下一轮、不重复点。
+   */
+  private roundRemaining: Set<ActorId> | null = null;
 
   constructor(private readonly deps: RefereeDeps) {
     const config = deps.scenes ?? {};
@@ -404,6 +446,86 @@ export class Referee {
     }
     events.push({ kind: "barrier-released" });
     return { status: "released", posts: round.posts, events };
+  }
+
+  /**
+   * `nominate` — DM-only tool (#52, 改写 ADR-0003 节奏：平行涌现 → 串行点名).
+   * The AIDM points at ONE actor with an in-fiction cue (`desc`) and the engine
+   * blocks that single slot until the actor acts / passes / rolls (or, for a
+   * silent human, holds indefinitely = 暂停). It returns the actor's actual
+   * result + the round's remaining actors, so the DM sees each beat as it happens
+   * and never goes blind (修 Bug2).
+   *
+   * Round invariants the engine enforces (so the DM can't miscount): the round's
+   * `remaining` starts as the full present roster; only an actor still in
+   * `remaining` may be nominated (点重复/点不在场 → rejected); the round is over
+   * when `remaining` empties; the next `nominate` after that opens a fresh round
+   * (remaining reset to 全员). 后手看前手 is automatic: each acted post is recorded
+   * immediately, so the next nominee's horizon already includes it.
+   */
+  async nominate(scene: SceneId, actor: ActorId, desc?: string): Promise<NominateResult> {
+    // Open a fresh round if none is running or the previous one is complete.
+    if (this.roundRemaining === null || this.roundRemaining.size === 0) {
+      this.roundRemaining = new Set(this.roundRoster(scene));
+    }
+
+    if (!this.roundRemaining.has(actor)) {
+      const reason = this.roundRoster(scene).includes(actor)
+        ? `${actor} 本轮已行动，不能重复点名`
+        : `${actor} 不在场，无法点名`;
+      return { kind: "rejected", reason, remaining: [...this.roundRemaining] };
+    }
+
+    // Post the in-fiction point cue (drama, + the @mention in production) before
+    // pulling the actor up, so the nominee's horizon includes it (后手看前手).
+    if (desc !== undefined && !isBlank(desc)) {
+      await this.post(scene, this.deps.aidmId, desc);
+    }
+
+    const events: AwaitEvent[] = [];
+    const drive = this.driveOf(actor);
+    const result =
+      drive === "inert"
+        ? ({ kind: "passed" } as SlotResult)
+        : drive === "human"
+          ? await this.resolveHuman(scene, actor, events)
+          : await this.resolveAi(scene, actor, events);
+
+    // Silent human → infinite hold (= 暂停/存档). The slot stays open: the actor
+    // is NOT removed from remaining so a resume re-points the same person.
+    if (result.kind === "silent") {
+      const pause = pauseFrom(scene, this.deps.aidmId, [actor], new Map([[actor, "silent"]]));
+      this.lastPause = pause;
+      return { kind: "held", actor, pause, remaining: [...this.roundRemaining] };
+    }
+
+    // Acted/passed/rolled → the actor is done this round.
+    this.roundRemaining.delete(actor);
+    const remaining = [...this.roundRemaining];
+
+    const resolved = events.find((e) => e.kind === "check-resolved");
+    if (resolved && resolved.kind === "check-resolved") {
+      return {
+        kind: "checked",
+        actor,
+        skill: resolved.skill,
+        total: resolved.total,
+        success: resolved.success,
+        detail: resolved.detail,
+        remaining,
+      };
+    }
+    if (result.kind === "acted") {
+      return { kind: "acted", actor, prose: result.post.prose, remaining };
+    }
+    return { kind: "passed", actor, remaining };
+  }
+
+  /** The full set of non-DM actors a `nominate` round covers: the configured
+   *  present roster (#52), falling back to scene membership when unset. */
+  private roundRoster(scene: SceneId): readonly ActorId[] {
+    if (this.deps.presentActors) return this.deps.presentActors;
+    return [...this.scenes.membersOf(scene)].filter((a) => a !== this.deps.aidmId);
   }
 
   private async resolveHuman(

@@ -56,16 +56,17 @@ export async function npcGenerate(
 export function dmQueryStream(referee: Referee, systemPrompt: string): AsyncIterable<unknown> {
   return query({
     prompt:
-      "开始主持这场牌局：先用 narrate 发一段开场叙事，再用 await_actors 抛屏障等在场者回应；收齐后继续 narrate 推进。" +
-      "当某个角色的行动需要机械结算（检定/攻击）时，用 call_check 对该角色喊检定（声明技能、难度=DC、mode），" +
-      "然后照常 await_actors——由该角色自己用 /check 掷骰，你不要替他掷。" +
+      "开始主持这场牌局：先用 narrate 发一段开场叙事，再用 nominate 逐个点名在场角色（一次只点一个，写一句 in-fiction 的点名 cue）；" +
+      "每点一个就看它返回的「这一拍做了什么 + 还剩谁没点」，据此推进；把本轮在场的人都点完后再 narrate 收尾、进下一轮。" +
+      "当你从 nominate 的返回里看见某个角色的行动需要机械结算（检定/攻击）时，用 call_check 对该角色喊检定（声明技能、难度=DC、mode），" +
+      "然后再 nominate 那个角色——由它自己掷骰（真人走 /check），你不要替它掷。" +
       "循着剧情脊柱推进：抵达一个里程碑就 advance_milestone，撒线索时 discover_lead；玩家拖延/原地打转时 advance_clock 让世界时钟走，并用越来越明显的软引力（线索→NPC→世界自走）隐形把大方向拽回。",
     options: {
       systemPrompt,
       mcpServers: { engine: createDmMcpServer(referee) },
       allowedTools: [
         "mcp__engine__narrate",
-        "mcp__engine__await_actors",
+        "mcp__engine__nominate",
         // #44 — the AIDM 喊检定 (declares WHAT to roll); the player pulls the
         // trigger via `/check`, the NPC via its own `roll`. The AIDM never
         // auto-rolls (ADR-0013); a silent human holds the barrier (ADR-0003).

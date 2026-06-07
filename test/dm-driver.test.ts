@@ -78,9 +78,21 @@ describe("#20 buildDmSystemPrompt — pure prompt assembly", () => {
     expect(prompt).toContain("scene-tavern"); // the DM must know which scene to act in
     expect(prompt).toContain("npc-rogue");
     expect(prompt).toContain("human-1");
-    // The two tools the DM loop hinges on must be named.
+    // The two tools the DM loop hinges on must be named (#52: 串行 nominate, 退役 await_actors).
     expect(prompt).toContain("narrate");
-    expect(prompt).toContain("await_actors");
+    expect(prompt).toContain("nominate");
+    expect(prompt).not.toContain("await_actors");
+  });
+
+  test("teaches 串行点名纪律: 逐个点名、看得见结果、据此喊检定 (#52)", () => {
+    const prompt = buildDmSystemPrompt({ brief: "x", sceneId: "s", cast: [] });
+    // Serial discipline: nominate ONE at a time, see the result, then point next.
+    expect(prompt).toContain("逐个点名");
+    expect(prompt).toContain("一次只点一个");
+    // The DM is told it SEES each nominee's result (修 Bug2 失明) and the remaining list.
+    expect(prompt).toContain("remaining");
+    // It must call a check off what it actually saw, not narrate over it.
+    expect(prompt).toContain("call_check");
   });
 
   test("instructs the AIDM to steer the plot spine toward milestones (#45)", () => {

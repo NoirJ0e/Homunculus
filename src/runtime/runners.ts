@@ -265,6 +265,8 @@ export function makeRunners(deps: RunnerDeps): Runners {
       humanInbox: inbox,
       roster,
       npcFor: cast.npcFor,
+      // #52 — the round roster `nominate` covers: the human + each bound teammate.
+      presentActors: [human, ...cast.teammates.map((t) => t.id)],
       ...(dice !== undefined && { dice }),
       ...(bible !== undefined && { campaign: bible }),
     });

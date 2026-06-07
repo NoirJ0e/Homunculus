@@ -1,8 +1,8 @@
 /**
  * dm-prompt.ts — pure assembly of the DM's Agent-SDK system prompt (ADR-0010).
  *
- * Kept pure + tested so the load-bearing tool protocol (narrate → await_actors)
- * and the cast are guaranteed present regardless of how the runtime wires up.
+ * Kept pure + tested so the load-bearing tool protocol (narrate → nominate, #52
+ * 串行点名) and the cast are guaranteed present regardless of how the runtime wires up.
  */
 export interface DmCastMember {
   readonly actorId: string;
@@ -12,7 +12,7 @@ export interface DmCastMember {
 export interface DmPromptInput {
   /** The opening situation / campaign brief the AIDM narrates from. */
   readonly brief: string;
-  /** The scene id every narrate / await_actors call must use this session. */
+  /** The scene id every narrate / nominate call must use this session. */
   readonly sceneId: string;
   /** Who is at the table this session (humans + NPC agents). */
   readonly cast: readonly DmCastMember[];
@@ -36,15 +36,18 @@ export function buildDmSystemPrompt(input: DmPromptInput): string {
     "## 在场角色——他们各有独立的扮演者，不是你来演",
     roster,
     "",
-    "**铁律（最重要）**：上面列出的每个角色都由一个独立的 agent 扮演。你【绝对不可以】替他们写任何台词、动作、表情或心理活动——哪怕只有一句、哪怕你觉得「他显然会这么做」。需要他们开口或行动时，唯一的办法是调 `await_actors` 把他们的 id 放进 order，由他们自己出手。",
+    "**铁律（最重要）**：上面列出的每个角色都由一个独立的 agent 扮演。你【绝对不可以】替他们写任何台词、动作、表情或心理活动——哪怕只有一句、哪怕你觉得「他显然会这么做」。需要他们开口或行动时，唯一的办法是用 `nominate` 逐个点名，由他们自己出手。",
     "你能写的只有三类：① 世界与环境（天气、声响、物件）；② 推进剧情的事件与后果；③ 【只出现一次的龙套】（酒保、路人、信使等无名小角色——这些你可以在叙事里直接替他们说话）。**列在上面的角色永远不属于第③类。**",
     "",
-    "## 你的工具与节奏（务必遵守）",
+    "## 你的工具与节奏（务必遵守——串行点名）",
     "- `narrate(sceneId, prose)`：发表你那一段叙事（只含上面三类内容）。",
-    "- `await_actors(sceneId, order)`：当你需要在场角色回应、或玩家刚做了一件会引起他们反应的事时，调用它，传入出手顺序（上面那些 id 的数组，通常把刚被触动的角色和玩家都放进去）。引擎按序拉起每个角色（NPC 自己出手，真人在 Discord 里打字），收齐后把结果返回给你。",
-    "- `call_check(actor, skill, difficulty, mode)`：当某个角色的行动需要机械结算时（困难侦查、攻击、豁免……），对该角色喊检定——声明技能、难度（difficulty=DC/AC）、mode（check 或 attack）。**你只喊不掷**：喊完照常 `await_actors`，由该角色自己扣扳机（真人走 `/check` slash，NPC 走它的 roll），骰子权威按系统结算后把结果发回叙事，你再承接。**绝不替玩家掷骰**——沉默的真人就让屏障挂着（那就是暂停/存档）。",
-    "- 典型一拍：`narrate`（铺环境/抛事件）→（需要时 `call_check`）→ `await_actors`（让在场角色 + 玩家回应/掷骰）→ `narrate`（承接他们做的事、推进后果）→ 再 `await_actors`……如此循环。",
-    "- **不要自己替角色把反应演完再走流程**——那是抢了他们的戏。把舞台交还给 `await_actors`。",
+    "- `nominate(sceneId, actor, desc)`：**逐个点名**在场角色——一次只点一个。`desc` 写一句 in-fiction 的点名 cue（如「老张，那阵风掀动你的衣角——你怎么做？」），引擎会先把它发出去、@ 到对应的人，再阻塞等这一个人出手。",
+    "  - **一次只点一个，看到结果再点下一个**：`nominate` 返回【这个人这一拍实际做了什么】（散文 / 过 / 掷骰结果）+【本轮还剩谁没点 remaining】。你据此判断要不要喊检定、接下来点谁。**绝不脑补他做了什么**——你看得见，就按你看见的来。",
+    "  - 引擎替你兜底记账：你只能点 remaining 里还没点的人，点重复/点不在场会被拒；**本轮必须把每个人都点到**（remaining 清空）才算走完一轮，然后你 narrate 收尾，下一次 nominate 自动开新一轮（remaining 重置为全员）。你不用自己记谁点过。",
+    "  - **真人不限时**：轮到真人时引擎无限期等他——他暂时不回应＝牌局自然挂起（暂停/存档），这是设计，不是卡住。把高风险/可能 AFK 的人点靠后。",
+    "- `call_check(actor, skill, difficulty, mode)`：当你从 `nominate` 的返回里**看见**某个角色的行动需要机械结算时（困难侦查、攻击、豁免……），对该角色喊检定——声明技能、难度（difficulty=DC/AC）、mode（check 或 attack）。**你只喊不掷**：喊完再 `nominate` 那个角色，由他自己扣扳机（真人走 `/check` slash，NPC 走它的 roll），骰子权威结算后把结果回给你，你再承接。**绝不替玩家掷骰**。",
+    "- 典型一拍：`narrate`（铺环境/抛事件）→ `nominate` 第一个人 →（看到他做了什么，需要时 `call_check` 再 `nominate` 他掷）→ `nominate` 下一个人……把本轮在场的人都点完 → `narrate`（承接全场刚做的事、推进后果）→ 进下一轮。",
+    "- **不要自己替角色把反应演完**，也不要一次性脑补全场——那是抢了他们的戏。一个一个 `nominate`，看着他们出手。",
     "",
     "## 剧情脊柱（循着里程碑走向高潮）",
     "- `advance_milestone()`：当这一拍达成了当前里程碑（「这件事必须发生」）时调用，游标推进到下一个里程碑。循着脊柱把故事推向高潮，别漫无目的地即兴。",

@@ -33,18 +33,35 @@ export function dmTools(referee: Referee): SdkMcpToolDefinition<any>[] {
       },
     ),
     tool(
-      "await_actors",
-      "AIDM 抛屏障：按出手顺序跑一轮简化战斗轮，引擎逐个拉起在场者（NPC 过唤醒闸后出手，真人经收件箱）。全员行动/明确 pass → 返回；真人沉默 → 溢出一轮后挂起（暂停/存档）。仅 DM 可用。",
-      { sceneId: z.string(), order: z.array(z.string()) },
+      "nominate",
+      "AIDM 串行点名（取代批量 await_actors，ADR-0003 改写）：点名一个在场角色 actor、附一句 in-fiction 的 cue 散文 desc，引擎阻塞这一槽直到该角色出手/掷骰/pass（真人沉默则无限期挂起=暂停/存档），然后把【该角色这一拍做了什么】+【本轮还剩谁没点 remaining】返回给你——你据此决定要不要喊检定、接下来点谁。引擎兜底：只能点 remaining 内的角色，点重复/点不在场会被拒；本轮全员点完才进下一轮（自动重置为全员）。仅 DM 可用。",
+      { sceneId: z.string(), actor: z.string(), desc: z.string().optional() },
       async (args) => {
-        const outcome = await referee.awaitActors(
+        const res = await referee.nominate(
           sceneId(args.sceneId),
-          args.order.map(actorId),
+          actorId(args.actor),
+          args.desc,
         );
-        const text =
-          outcome.status === "released"
-            ? `released: ${outcome.posts.length} post(s)`
-            : `held: waiting on ${outcome.pause.waitingOn.join(", ")}`;
+        const left =
+          res.remaining.length > 0 ? `还剩：${res.remaining.join("、")}` : "本轮已全部点完";
+        let text: string;
+        switch (res.kind) {
+          case "rejected":
+            text = `点名被拒：${res.reason}。${left}`;
+            break;
+          case "held":
+            text = `${res.actor} 沉默（真人未回应）→ 屏障挂起=暂停/存档；轮到他时仍等他。`;
+            break;
+          case "acted":
+            text = `${res.actor}：${res.prose}\n${left}`;
+            break;
+          case "passed":
+            text = `${res.actor} 过（没有要说/做的）。${left}`;
+            break;
+          case "checked":
+            text = `${res.actor} 掷 ${res.skill}：${res.detail}（${res.success ? "成功" : "失败"}，total=${res.total}）\n${left}`;
+            break;
+        }
         return { content: [{ type: "text", text }] };
       },
     ),
