@@ -32,4 +32,35 @@ describe("#28 buildRuntimeConfig — read process secrets, no hardcoded session 
     expect(cfg.lobbyCampaign).toBe("front-desk");
     expect(cfg.defaultArchetype).toBe("法师");
   });
+
+  test("#53 applies NPC-gen timeout/retry/budget defaults when unset", () => {
+    const cfg = buildRuntimeConfig(fullEnv);
+    expect(cfg.npcGenTimeoutMs).toBe(30_000);
+    expect(cfg.npcGenMaxAttempts).toBe(3);
+    expect(cfg.npcGenTotalBudgetMs).toBe(90_000);
+  });
+
+  test("#53 parses NPC-gen timeout/retry/budget from env", () => {
+    const cfg = buildRuntimeConfig({
+      ...fullEnv,
+      NPC_GEN_TIMEOUT_MS: "5000",
+      NPC_GEN_MAX_ATTEMPTS: "2",
+      NPC_GEN_TOTAL_BUDGET_MS: "12000",
+    });
+    expect(cfg.npcGenTimeoutMs).toBe(5_000);
+    expect(cfg.npcGenMaxAttempts).toBe(2);
+    expect(cfg.npcGenTotalBudgetMs).toBe(12_000);
+  });
+
+  test("#53 falls back to defaults on invalid (non-integer) NPC-gen env", () => {
+    const cfg = buildRuntimeConfig({
+      ...fullEnv,
+      NPC_GEN_TIMEOUT_MS: "soon",
+      NPC_GEN_MAX_ATTEMPTS: "",
+      NPC_GEN_TOTAL_BUDGET_MS: "1.5x",
+    });
+    expect(cfg.npcGenTimeoutMs).toBe(30_000);
+    expect(cfg.npcGenMaxAttempts).toBe(3);
+    expect(cfg.npcGenTotalBudgetMs).toBe(90_000);
+  });
 });
