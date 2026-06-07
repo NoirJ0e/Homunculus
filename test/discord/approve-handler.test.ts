@@ -71,6 +71,7 @@ describe("approve handler (/批准)", () => {
         addAiSeat: async () => {},
         check: async () => {},
         roll: async () => {},
+        pause: async () => {},
       }),
       { isOwner: () => false, inRoster: () => true },
     );
@@ -93,6 +94,7 @@ describe("approve handler (/批准)", () => {
         addAiSeat: async () => {},
         check: async () => {},
         roll: async () => {},
+        pause: async () => {},
       }),
       { isOwner: () => true, inRoster: () => true },
     );

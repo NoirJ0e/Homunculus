@@ -29,6 +29,8 @@ export interface CommandSetHandlers {
   readonly check: CommandHandler;
   /** Player makes a free BCDice roll, not tied to a pending check (#44). */
   readonly roll: CommandHandler;
+  /** Any seated player pauses the table → held session (#55). */
+  readonly pause: CommandHandler;
 }
 
 /** Human-facing descriptions used when registering the commands as guild application commands. */
@@ -41,6 +43,7 @@ export const COMMAND_DESCRIPTIONS: Readonly<Record<string, string>> = {
   "add-ai-seat": "Owner only: add an AI teammate seat (auto-generated, then reviewed like any card).",
   "check": "Roll your pending check, or request one by naming a 技能 the DM must answer. Optionally pass 优势/劣势.",
   "roll": "Roll free dice for this campaign's system, e.g. 2d6.",
+  "pause": "Pause the table for tonight — any seated player can call it; pick up later.",
 };
 
 /**
@@ -117,5 +120,7 @@ export function createCommandSet(handlers: CommandSetHandlers): CommandRegistrat
     // rostered player may roll (the engine still enforces own-check on resolve).
     { name: "check", scope: "player", handler: handlers.check },
     { name: "roll", scope: "player", handler: handlers.roll },
+    // #55 — any seated player may pause the table for tonight (→ held session).
+    { name: "pause", scope: "player", handler: handlers.pause },
   ];
 }

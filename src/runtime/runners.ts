@@ -96,6 +96,12 @@ export interface RunnerDeps {
   readonly defaultArchetype?: string;
   /** Whether the AIDM session is still live (drives the dm-driver restart net). */
   readonly isSessionActive: () => boolean;
+  /**
+   * Whether a channel's session has been `/pause`d (#55). The AIDM driver's
+   * restart gate consults this per channel: held → the self-driving loop stops
+   * re-launching. Optional + additive (absent → never paused).
+   */
+  readonly isPaused?: (channelId: string) => boolean;
   /** Sink for runner-level errors (logging in production). */
   readonly onError?: (where: string, error: unknown) => void;
   /**
@@ -305,7 +311,9 @@ export function makeRunners(deps: RunnerDeps): Runners {
 
     void runDmDriver({
       runQuery: () => dmQueryStream(referee, systemPrompt),
-      isSessionActive: deps.isSessionActive,
+      // #55 — the session stops when globally inactive OR this channel is /paused.
+      isSessionActive: () =>
+        deps.isSessionActive() && !(deps.isPaused?.(ctx.channelId) ?? false),
       onError: (e) => onError(`aidm:${ctx.channelId}`, e),
       ...(observe && { onMessage: observe("aidm") }),
     }).catch((e) => onError(`aidm-driver:${ctx.channelId}`, e));

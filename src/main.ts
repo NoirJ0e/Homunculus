@@ -54,6 +54,8 @@ import { createApproveHandler } from "./adapters/discord/approve-handler.js";
 import { createAddAiSeatHandler } from "./adapters/discord/add-ai-seat-handler.js";
 import { createCheckHandler } from "./adapters/discord/check-handler.js";
 import { createRollHandler } from "./adapters/discord/roll-handler.js";
+import { createPauseHandler } from "./adapters/discord/pause-handler.js";
+import { PauseRegistry } from "./runtime/pause-registry.js";
 import { CheckSessionTable } from "./runtime/check-session.js";
 import { BcdiceDice } from "./adapters/dice/bcdice-dice.js";
 import { LibBcdiceEvaluator } from "./adapters/dice/bcdice-evaluator.js";
@@ -77,6 +79,10 @@ const { eventSource, resolveRouting } = await createDispatcherGatewaySource(
 const adminPort = await createRealDiscordAdmin({ botToken: cfg.botToken, guildId: cfg.guildId });
 
 let active = true;
+
+// #55 — held-session registry: `/pause` marks a channel held; the AIDM driver's
+// restart gate consults it so a paused table winds down cleanly.
+const pauseRegistry = new PauseRegistry();
 
 // Persistent campaign bibles (#32, ADR-0012): survives restart so the AIDM still
 // knows which campaign it's running after a process bounce.
@@ -121,6 +127,7 @@ const runners = makeRunners({
   rosterStore,
   defaultArchetype: cfg.defaultArchetype,
   isSessionActive: () => active,
+  isPaused: (channelId) => pauseRegistry.isHeld(channelId),
   onError: (where, error) => console.error(`[runner-error] ${where}`, error),
   makeDice,
   checkSessions,
@@ -280,6 +287,12 @@ const commandSet = createCommandSet({
     systemFor: (event) => campaignStore.get(resolveCampaign(event))?.system ?? "coc7",
     post: (channelId, text) =>
       discordClient.sendWebhookMessage(channelId, { content: text, username: "骰子" }),
+    reply,
+  }),
+  // #55 — `/pause`: any seated player marks the channel held; the AIDM driver
+  // winds down. Cross-process serialized resume is deferred (ADR-0010).
+  pause: createPauseHandler({
+    pause: (channelId) => pauseRegistry.pause(channelId),
     reply,
   }),
   setRoster: createSetRosterHandler({

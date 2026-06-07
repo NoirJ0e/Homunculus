@@ -17,6 +17,7 @@ function noopHandlers(): CommandSetHandlers {
     addAiSeat: vi.fn(async () => {}),
     check: vi.fn(async () => {}),
     roll: vi.fn(async () => {}),
+    pause: vi.fn(async () => {}),
   };
 }
 
@@ -33,7 +34,8 @@ describe("#31 createCommandSet — ADR-0012 initial command set + scopes", () =>
     expect(scopeByName.get("add-ai-seat")).toBe("owner");
     expect(scopeByName.get("check")).toBe("player"); // #44 roll-trigger
     expect(scopeByName.get("roll")).toBe("player"); // #44 free roll
-    expect(set).toHaveLength(8);
+    expect(scopeByName.get("pause")).toBe("player"); // #55 any seated player may pause
+    expect(set).toHaveLength(9);
   });
 
   test("every command has a registration-ready description", () => {
