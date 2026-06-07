@@ -21,10 +21,15 @@ const event = (over: Partial<CommandEvent> = {}): CommandEvent => ({
   ...over,
 });
 
-function makeSession(pendingActors: readonly string[], turns: HumanTurn[]): CheckSessionHandle {
+function makeSession(
+  pendingActors: readonly string[],
+  turns: HumanTurn[],
+  intents: { actor: string; skill: string }[] = [],
+): CheckSessionHandle {
   return {
     hasPending: (actor) => pendingActors.includes(actor),
     deliverTurn: (turn) => turns.push(turn),
+    requestCheck: (actor, skill) => intents.push({ actor, skill }),
   };
 }
 
@@ -96,5 +101,42 @@ describe("/check handler", () => {
     await handler(event());
     expect(turns).toEqual([]);
     expect(replies).toEqual(["你当前没有待掷的检定。"]);
+  });
+
+  test("#54 no pending but a skill given → registers a hard-request intent, no roll injected", async () => {
+    const turns: HumanTurn[] = [];
+    const intents: { actor: string; skill: string }[] = [];
+    const session = makeSession([], turns, intents);
+    const replies: string[] = [];
+    const handler = createCheckHandler({
+      sessionFor: () => session,
+      resolveActor: (id) => actorId(id),
+      reply: async (t) => {
+        replies.push(t);
+      },
+    });
+
+    await handler(event({ options: { skill: "侦查" } }));
+
+    // The request is registered (顶给 DM) — NOT silently dropped — and nothing rolled yet.
+    expect(intents).toEqual([{ actor: "player-1", skill: "侦查" }]);
+    expect(turns).toEqual([]);
+    expect(replies[0]).toContain("侦查");
+  });
+
+  test("#54 a pending check takes precedence over the skill option (DM already called it)", async () => {
+    const turns: HumanTurn[] = [];
+    const intents: { actor: string; skill: string }[] = [];
+    const session = makeSession(["player-1"], turns, intents);
+    const handler = createCheckHandler({
+      sessionFor: () => session,
+      resolveActor: (id) => actorId(id),
+      reply: async () => {},
+    });
+
+    await handler(event({ options: { skill: "侦查" } }));
+
+    expect(turns).toEqual([{ kind: "roll" }]); // rolls the pending, not a new intent
+    expect(intents).toEqual([]);
   });
 });

@@ -236,3 +236,53 @@ describe("#52 nominate (串行点名 + 眼睛 + 轮不变量)", () => {
     }
   });
 });
+
+describe("#54 检定硬请求地板（玩家显式请求 → pending intent → 顶给 DM 不可丢）", () => {
+  const player = actorId("player");
+
+  test("requestCheck registers a pending intent the DM can read; DC 仍未定", () => {
+    const referee = new Referee({ aidmId: aidm, substrate: new FakeSubstrate() });
+
+    referee.requestCheck(player, "侦查");
+
+    expect(referee.pendingIntents()).toEqual([{ actor: player, skill: "侦查" }]);
+    // It is a REQUEST, not a callable check — no DC assigned, nothing to roll yet.
+    expect(referee.pendingCheckFor(player)).toBeUndefined();
+  });
+
+  test("the same request twice does not duplicate; different skills accumulate", () => {
+    const referee = new Referee({ aidmId: aidm, substrate: new FakeSubstrate() });
+    referee.requestCheck(player, "侦查");
+    referee.requestCheck(player, "侦查");
+    referee.requestCheck(player, "聆听");
+    expect(referee.pendingIntents()).toEqual([
+      { actor: player, skill: "侦查" },
+      { actor: player, skill: "聆听" },
+    ]);
+  });
+
+  test("DM answering via call_check (DM 定 DC) clears the matching intent — 地板被满足", async () => {
+    const referee = new Referee({ aidmId: aidm, substrate: new FakeSubstrate() });
+    referee.requestCheck(player, "侦查");
+    referee.requestCheck(player, "聆听");
+
+    await referee.callCheck(player, "侦查", "60"); // DC is the DM's to set
+
+    expect(referee.pendingIntents()).toEqual([{ actor: player, skill: "聆听" }]);
+  });
+
+  test("an unanswered intent is surfaced to the DM by the nominate tool — 不可静默丢弃", async () => {
+    const substrate = new FakeSubstrate();
+    const npc = new FakeNpc({ "npc-rogue": [{ kind: "speak", prose: "罗格点头。" }] });
+    const referee = new Referee({ aidmId: aidm, substrate, npcFor: () => npc, presentActors: [rogue] });
+    referee.requestCheck(player, "侦查");
+
+    const nominate = dmTools(referee).find((t) => t.name === "nominate")!;
+    const res = await nominate.handler({ sceneId: "scene:tavern", actor: "npc-rogue" }, {});
+    const text = (res.content[0] as { text: string }).text;
+
+    // The DM is told, in its tool return, that a player requested a check it must answer.
+    expect(text).toContain("player");
+    expect(text).toContain("侦查");
+  });
+});

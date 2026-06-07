@@ -25,6 +25,11 @@ function isBlank(prose: string): boolean {
   return prose.trim().length === 0;
 }
 
+/** Stable key for a player's check intent (#54): one entry per actor+skill. */
+function intentKey(actor: ActorId, skill: string): string {
+  return `${actor}::${skill}`;
+}
+
 /**
  * Referee — the engine's shared state + the tool handlers the DM/NPC agents
  * call (ADR-0009). The control flow is half-inverted: the DM is a self-driving
@@ -168,6 +173,15 @@ export class Referee {
   /** Checks the DM has called (喊检定) but no one has rolled yet, keyed by the
    *  actor who must roll. An actor may only resolve ITS OWN pending entry. */
   private readonly pendingChecks = new Map<ActorId, CheckCall>();
+  /**
+   * Checks a PLAYER explicitly requested but the DM has not yet answered (#54,
+   * 检定硬请求地板). Keyed by `actor::skill` so a repeat request is idempotent and
+   * different skills accumulate. The DM cannot silently drop these: they are
+   * surfaced on every `nominate` until the DM answers with `call_check` (which
+   * sets the DC and clears the matching intent). This is the floor that stops
+   * 「我明确要检定却被无视」.
+   */
+  private readonly checkIntents = new Map<string, { actor: ActorId; skill: string }>();
   /** Per-branch milestone cursor (ADR-0007), or null when no campaign is loaded. */
   private cursor: MilestoneCursorState | null = null;
   /** The campaign's world clocks, keyed by id; advanced via `advanceClock`. */
@@ -355,6 +369,25 @@ export class Referee {
       ...(difficulty !== undefined && { difficulty }),
       ...(mode !== undefined && { mode }),
     });
+    // The DM answered a player's hard request (if any) — clear that intent (#54).
+    this.checkIntents.delete(intentKey(actor, skill));
+  }
+
+  /**
+   * `requestCheck` — a PLAYER explicitly requests a check that does not yet exist
+   * (#54, e.g. `/check 侦查` with nothing pending). The engine registers it as a
+   * pending intent which it then forces in front of the DM (via `nominate`) until
+   * answered. The DM still sets the DC (this does NOT auto-resolve anything); it
+   * only guarantees the request is not silently ignored. Idempotent per actor+skill.
+   */
+  requestCheck(actor: ActorId, skill: string): void {
+    this.checkIntents.set(intentKey(actor, skill), { actor, skill });
+  }
+
+  /** The player-requested checks the DM has not yet answered (#54), in request
+   *  order. Read-only — the `nominate` tool surfaces these so the DM can't drop them. */
+  pendingIntents(): readonly { actor: ActorId; skill: string }[] {
+    return [...this.checkIntents.values()].map((i) => ({ ...i }));
   }
 
   /**

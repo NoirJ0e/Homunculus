@@ -278,6 +278,8 @@ export function makeRunners(deps: RunnerDeps): Runners {
     deps.checkSessions?.bind(ctx.channelId, {
       hasPending: (actor) => referee.pendingCheckFor(actor) !== undefined,
       deliverTurn: (turn) => inbox.deliverTurn(turn),
+      // #54 — a player's hard check request → engine intent, forced to the DM.
+      requestCheck: (actor, skill) => referee.requestCheck(actor, skill),
     });
     teardowns.set(ctx.channelId, () => deps.checkSessions?.delete(ctx.channelId));
 

@@ -25,6 +25,13 @@ export interface CheckSessionHandle {
   hasPending(actor: ActorId): boolean;
   /** Inject a pre-formed turn (the roll) into the session's human inbox. */
   deliverTurn(turn: HumanTurn): void;
+  /**
+   * Register a player's HARD REQUEST for a check that does not yet exist (#54):
+   * `/check 侦查` with nothing pending. Backed by `Referee.requestCheck`, it is
+   * forced in front of the DM (via `nominate`) until answered — the floor against
+   * 「我明确要检定却被无视」. The DM still sets the DC.
+   */
+  requestCheck(actor: ActorId, skill: string): void;
 }
 
 /**

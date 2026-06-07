@@ -62,6 +62,13 @@ export function dmTools(referee: Referee): SdkMcpToolDefinition<any>[] {
             text = `${res.actor} 掷 ${res.skill}：${res.detail}（${res.success ? "成功" : "失败"}，total=${res.total}）\n${left}`;
             break;
         }
+        // #54 检定硬请求地板：把玩家显式请求、你还没回应的检定顶到你眼前，不可静默丢弃。
+        // 由你定 DC：用 call_check(actor, skill, difficulty) 回应，回应后该条自动消失。
+        const intents = referee.pendingIntents();
+        if (intents.length > 0) {
+          const lines = intents.map((i) => `${i.actor} 请求「${i.skill}」`).join("；");
+          text += `\n⚠ 待你回应的玩家检定请求（你来定 DC，别忽略）：${lines}`;
+        }
         return { content: [{ type: "text", text }] };
       },
     ),

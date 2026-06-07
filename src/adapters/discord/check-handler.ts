@@ -47,12 +47,27 @@ export function createCheckHandler(deps: CheckHandlerDeps): CommandHandler {
     const session = deps.sessionFor(event.channelId);
     const actor = deps.resolveActor(event.invokerId);
 
-    if (session === undefined || !session.hasPending(actor)) {
+    if (session === undefined) {
       await deps.reply("你当前没有待掷的检定。");
       return;
     }
 
-    const advantage = parseAdvantage(event.options["advantage"]);
-    session.deliverTurn({ kind: "roll", ...(advantage !== undefined && { advantage }) });
+    // A pending check (the AIDM already 喊'd it) takes precedence: pull the trigger.
+    if (session.hasPending(actor)) {
+      const advantage = parseAdvantage(event.options["advantage"]);
+      session.deliverTurn({ kind: "roll", ...(advantage !== undefined && { advantage }) });
+      return;
+    }
+
+    // #54 检定硬请求地板：nothing pending, but the player named a skill → register a
+    // hard request the engine forces in front of the DM (DM 定 DC). Without a skill
+    // there is nothing to request — keep the friendly nothing-to-roll reply.
+    const skill = event.options["skill"]?.trim();
+    if (skill) {
+      session.requestCheck(actor, skill);
+      await deps.reply(`已记下你要的检定「${skill}」，等 DM 定难度后再掷。`);
+      return;
+    }
+    await deps.reply("你当前没有待掷的检定。");
   };
 }
