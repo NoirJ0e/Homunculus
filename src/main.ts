@@ -21,6 +21,7 @@
 import { resolveAuth } from "./runtime/auth.js";
 import { buildRuntimeConfig } from "./runtime/config.js";
 import { createWebhookPostingClient } from "./adapters/discord/create-real-discord.js";
+import { createBotPool } from "./adapters/discord/bot-pool.js";
 import { createDispatcherGatewaySource } from "./adapters/discord/create-gateway-source.js";
 import { createRealDiscordAdmin } from "./adapters/discord/real-discord-admin.js";
 import { makeRunners, makeCardCreationAssistant } from "./runtime/runners.js";
@@ -78,6 +79,11 @@ const { eventSource, resolveRouting } = await createDispatcherGatewaySource(
 );
 const adminPort = await createRealDiscordAdmin({ botToken: cfg.botToken, guildId: cfg.guildId });
 
+// #56 — the NPC bot pool: log in one bot per BOT_TOKEN_n so each AI teammate is
+// its own @-mentionable identity. Empty (no tokens) → NPCs use webhook personas.
+const botPool = await createBotPool(cfg.botPoolTokens);
+console.log(`[ready] NPC bot pool: ${botPool.length} bot(s) logged in.`);
+
 let active = true;
 
 // #55 — held-session registry: `/pause` marks a channel held; the AIDM driver's
@@ -128,6 +134,9 @@ const runners = makeRunners({
   defaultArchetype: cfg.defaultArchetype,
   isSessionActive: () => active,
   isPaused: (channelId) => pauseRegistry.isHeld(channelId),
+  // #56 — NPC bot pool + guild for per-NPC nicknames.
+  botPool,
+  guildId: cfg.guildId,
   onError: (where, error) => console.error(`[runner-error] ${where}`, error),
   makeDice,
   checkSessions,

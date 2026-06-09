@@ -4,8 +4,11 @@ import type { DiscordClient } from "../adapters/discord/discord-substrate.js";
 import { actorId, sceneId as brandScene, campaignId, type CampaignId } from "../domain/ids.js";
 import type { ActorPersona } from "../adapters/discord/scene-threads.js";
 import { DiscordSubstrate } from "../adapters/discord/discord-substrate.js";
+import { MultiBotSubstrate } from "../adapters/discord/multi-bot-substrate.js";
+import type { PoolBot } from "../adapters/discord/bot-pool.js";
 import { Referee } from "../engine/referee.js";
 import { mapRoster } from "../engine/roster.js";
+import { assignNpcsToBots } from "./npc-bot-assignment.js";
 import { AgentNpc } from "../adapters/agent-sdk/agent-npc.js";
 import {
   withTimeoutRetry,
@@ -131,6 +134,16 @@ export interface RunnerDeps {
    * Wired from RuntimeConfig (`npcGen*`) in the composition root; absent → raw.
    */
   readonly npcTimeout?: TimeoutRetryOptions;
+  /**
+   * The NPC bot pool (#56, 改写 ADR-0010): each AI teammate posts as its OWN
+   * real, @-mentionable bot. When present (≥1 logged-in bot), the AIDM runner
+   * binds teammates to pool bots (sets their per-guild nickname) and routes their
+   * posts through {@link MultiBotSubstrate}; absent → the single-webhook persona
+   * substrate (degrade). Built once at process start via `createBotPool`.
+   */
+  readonly botPool?: readonly PoolBot[];
+  /** The guild id pool bots set their per-NPC nickname in (#56). */
+  readonly guildId?: string;
 }
 
 export interface Runners {
@@ -233,6 +246,12 @@ export function makeRunners(deps: RunnerDeps): Runners {
       return new AgentNpc({ persona, generate });
     };
 
+    // The human player's real Discord id (for the cue @真人 ping, #56) — the first
+    // human seat in the campaign roster (set-roster stores it on the entry).
+    const humanDiscordId = (deps.rosterStore.get(campaign) ?? []).find(
+      (e) => e.kind === "human",
+    )?.discordUserId;
+
     // Load the campaign's verified, bound AI teammates from the stores — no more
     // inlined genesis. The NPC persona comes from the SAVED soul.
     const cast = assembleAidmCast({
@@ -241,6 +260,7 @@ export function makeRunners(deps: RunnerDeps): Runners {
       campaign,
       humanId: human,
       makeNpc,
+      ...(humanDiscordId !== undefined && { humanDiscordId }),
     });
     if (cast.degraded) {
       onError(`aidm:${ctx.channelId}`, new Error("no bound AI teammate — AIDM opening solo"));
@@ -250,7 +270,39 @@ export function makeRunners(deps: RunnerDeps): Runners {
 
     // The channel IS the scene: route every post to ctx.channelId.
     const threadMap = { [scene]: ctx.channelId };
-    const substrate = new DiscordSubstrate(deps.discordClient, personas, threadMap);
+
+    // #56 — bind each teammate to its own pool bot (a real @-able identity). With
+    // a pool, NPCs post through MultiBotSubstrate (their bot's nickname = the NPC);
+    // without one, degrade to the single-webhook persona substrate.
+    const pool = deps.botPool ?? [];
+    let substrate;
+    if (pool.length > 0) {
+      const { assignments } = assignNpcsToBots(
+        cast.teammates.map((t) => t.id),
+        pool.length,
+      );
+      const botByActor = new Map<string, PoolBot>();
+      for (const soul of cast.teammates) {
+        const idx = assignments.get(soul.id);
+        if (idx === undefined) continue;
+        const bot = pool[idx]!;
+        botByActor.set(soul.id, bot);
+        // Make the bot appear in-fiction as this NPC (best-effort; non-fatal).
+        if (deps.guildId !== undefined) {
+          void bot.setNickname(deps.guildId, soul.personaCore.name).catch((e) =>
+            onError(`aidm:${ctx.channelId}:nickname`, e),
+          );
+        }
+      }
+      substrate = new MultiBotSubstrate({
+        webhook: deps.discordClient,
+        personas,
+        threadMap,
+        botFor: (a) => botByActor.get(a),
+      });
+    } else {
+      substrate = new DiscordSubstrate(deps.discordClient, personas, threadMap);
+    }
 
     const inbox = new PushInbox();
     const roster = mapRoster(cast.rosterKinds);

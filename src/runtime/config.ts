@@ -23,6 +23,12 @@ export interface RuntimeConfig {
   readonly npcGenMaxAttempts: number;
   /** #53 所有尝试合计的墙钟预算 (ms) — caps total wall time. */
   readonly npcGenTotalBudgetMs: number;
+  /**
+   * #56 NPC bot 池的 token，按 `BOT_TOKEN_1`、`BOT_TOKEN_2`… 顺序枚举到第一个
+   * 空缺为止（无洞）。每个 token 登录成一个可被 @ 的真 bot 身份，运行时把 NPC
+   * 人格分配给池中 bot。空 = 无池（NPC 退回单 webhook 分身）。
+   */
+  readonly botPoolTokens: readonly string[];
 }
 
 const REQUIRED = ["DISCORD_BOT_TOKEN", "DISCORD_GUILD_ID"] as const;
@@ -43,6 +49,18 @@ function intEnv(env: NodeJS.ProcessEnv, key: string, fallback: number): number {
   return Number.isInteger(n) && n > 0 ? n : fallback;
 }
 
+/** Enumerate `BOT_TOKEN_1`, `BOT_TOKEN_2`, … into a pool, stopping at the first
+ *  missing/blank index so the pool has no holes (#56). */
+function botPoolTokens(env: NodeJS.ProcessEnv): string[] {
+  const tokens: string[] = [];
+  for (let i = 1; ; i += 1) {
+    const tok = env[`BOT_TOKEN_${i}`]?.trim();
+    if (!tok) break;
+    tokens.push(tok);
+  }
+  return tokens;
+}
+
 export function buildRuntimeConfig(env: NodeJS.ProcessEnv): RuntimeConfig {
   return {
     botToken: need(env, "DISCORD_BOT_TOKEN"),
@@ -52,5 +70,6 @@ export function buildRuntimeConfig(env: NodeJS.ProcessEnv): RuntimeConfig {
     npcGenTimeoutMs: intEnv(env, "NPC_GEN_TIMEOUT_MS", 30_000),
     npcGenMaxAttempts: intEnv(env, "NPC_GEN_MAX_ATTEMPTS", 3),
     npcGenTotalBudgetMs: intEnv(env, "NPC_GEN_TOTAL_BUDGET_MS", 90_000),
+    botPoolTokens: botPoolTokens(env),
   };
 }

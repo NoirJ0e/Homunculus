@@ -510,9 +510,10 @@ export class Referee {
     }
 
     // Post the in-fiction point cue (drama, + the @mention in production) before
-    // pulling the actor up, so the nominee's horizon includes it (后手看前手).
+    // pulling the actor up, so the nominee's horizon includes it (后手看前手). The
+    // nominee is tagged in `mentions` so the substrate @-pings the real player (#56).
     if (desc !== undefined && !isBlank(desc)) {
-      await this.post(scene, this.deps.aidmId, desc);
+      await this.post(scene, this.deps.aidmId, desc, [actor]);
     }
 
     const events: AwaitEvent[] = [];
@@ -635,8 +636,18 @@ export class Referee {
     return { sceneId: scene, actorId: actor, transcript };
   }
 
-  private async post(scene: SceneId, actor: ActorId, prose: string): Promise<Post> {
-    const post: Post = { sceneId: scene, actorId: actor, prose };
+  private async post(
+    scene: SceneId,
+    actor: ActorId,
+    prose: string,
+    mentions?: readonly ActorId[],
+  ): Promise<Post> {
+    const post: Post = {
+      sceneId: scene,
+      actorId: actor,
+      prose,
+      ...(mentions !== undefined && mentions.length > 0 && { mentions }),
+    };
     this.scenes.record(post);
     await this.deps.substrate.emit(post);
     return post;

@@ -69,3 +69,16 @@ grill 出的一个关键细化：NPC 不是铁板一块，按"演给谁、活多
 - 新增：gateway `Client`（现有适配器只有 REST + webhook）；`src/runtime/` 三个 driver（DM / NPC / 阻塞收件箱）；`src/main.ts` 组合根。引擎/referee 不动。
 - integration 层有"可测内核（driver/inbox/config 在 DI 接缝下）+ 薄 HITL 外壳（真 gateway + 真鉴权 + 真跑团）"的分层，TDD 纪律对除不可约 live 部分外全部保留。
 - ① 持久队友 / ② 临时核心 NPC 的完整生命周期管理（resume/fork/deleteSession、brief 装配、成本上限）是后续切片；今天只立接缝。
+
+## 修订 2026-06-10（#56 / PRD #50）：单 webhook 多分身 → 多真 bot 池
+
+原拓扑「单 bot + 一个 webhook，靠 username/avatar 切人格分身」无法让 NPC 成为**可被 @ 的真身份**——而 @bot 协商（#57）要求每个 AI 队友是一个真 bot。改写运行时拓扑：
+
+- **bot 池**：`.env` 按 `BOT_TOKEN_{n}` 枚举到第一个空缺为止（`config.botPoolTokens`，纯枚举可单测），每个 token 经 `createBotPool` 登录成一个 `PoolBot`（live glue）。`main` 启动时建池一次，传给 runner。
+- **人格→bot 分配**：`assignNpcsToBots`（纯，单测）按 roster 序把每个 teammate 绑到一个池 bot；池小于 cast 时多出的 NPC overflow 回退 webhook 分身（池容量约束 NPC 上场数）。绑定时设该 bot 的服务器内昵称=NPC 名。
+- **MultiBotSubstrate**（依赖纯 `PoolBot` 接缝 + webhook client，故可单测）：NPC 发帖经**各自 bot**（显示为其昵称），AIDM/overflow 仍经共享 webhook。`Post.mentions`（引擎只标 actorId）由 substrate 映射到 persona 的 `discordUserId` 渲染成真 `<@id>` + `allowed_mentions`——这就是**点名 cue @ 真人**的落地（真人 id 取自 roster 的 human entry）。
+- **@bot 解析**：`parseBotMentions`（纯，单测）把消息里的 `<@id>` 交到池 bot 名单——AC5「gateway 能解析 @ 指向哪个池 bot」的内核；用它做**路由**（hold→注入）是 #57。
+- **监听不变**：人类输入仍走主 bot gateway（池 bot 只发言+被@；其发帖 `author.bot=true` 被收件箱正确忽略，不会被当成玩家输入）。
+- **degrade**：无 `BOT_TOKEN_n` → 池空 → 回退原 `DiscordSubstrate` 单 webhook 分身，行为与改写前一致。
+
+[ADR-0009]「DM 自驱 + 引擎即 MCP 裁判」不变；本修订只换 substrate 拓扑与 NPC 身份载体。节奏侧的串行点名改写见 [ADR-0003] 的 #52 修订。

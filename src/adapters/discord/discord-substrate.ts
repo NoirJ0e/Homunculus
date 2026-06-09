@@ -61,6 +61,12 @@ export interface SentMessage {
   readonly username: string;
   /** Actor's avatar URL for the webhook persona. Omit if not set. */
   readonly avatarURL?: string;
+  /**
+   * Discord user ids to allow as @-mentions so the pings actually push (#56 cue
+   * @真人). The `content` carries the `<@id>` tags; this restricts/enables which
+   * resolve. Omit when the message mentions no one.
+   */
+  readonly allowedUserMentions?: readonly string[];
 }
 
 /**

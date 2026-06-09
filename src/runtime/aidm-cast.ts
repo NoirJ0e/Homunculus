@@ -32,6 +32,11 @@ export interface AidmCastInput {
   /** Username for the human in the cast (defaults to "玩家"). */
   readonly humanUsername?: string;
   /**
+   * The human player's real Discord (snowflake) id (#56). When present it is set
+   * on the human's persona so the 点名 cue can @-ping the real player (cue @真人).
+   */
+  readonly humanDiscordId?: string;
+  /**
    * Builds the NpcPort for ONE teammate soul (#51 修共脑 Bug1). Each teammate is
    * its own agent — its own persona, its own brain — so the cast calls this once
    * per teammate, never sharing a port. Production passes a factory that wraps a
@@ -75,7 +80,13 @@ export function assembleAidmCast(input: AidmCastInput): AidmCast {
   const teammates = loadBoundTeammates(input.rosterStore, input.soulStore, input.campaign);
   const humanUsername = input.humanUsername ?? "玩家";
 
-  const personas: ActorPersona[] = [{ actorId: input.humanId, username: humanUsername }];
+  const personas: ActorPersona[] = [
+    {
+      actorId: input.humanId,
+      username: humanUsername,
+      ...(input.humanDiscordId !== undefined && { discordUserId: input.humanDiscordId }),
+    },
+  ];
   const rosterKinds: Record<string, ActorKind> = { [input.humanId]: "human" };
 
   // One NpcPort per teammate, each built from ITS OWN persona core (#51). The map

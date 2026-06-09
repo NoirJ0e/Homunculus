@@ -144,6 +144,18 @@ describe("#52 nominate (串行点名 + 眼睛 + 轮不变量)", () => {
     ]);
   });
 
+  test("the cue post tags the nominee in `mentions` so the substrate can @ them (#56 cue @真人)", async () => {
+    const substrate = new FakeSubstrate();
+    const agent = new FakeNpc({ "npc-zhoushen": [{ kind: "speak", prose: "周慎应声。" }] });
+    const referee = new Referee({ aidmId: aidm, substrate, npcFor: () => agent, presentActors: [zhou] });
+
+    await referee.nominate(tavern, zhou, "周慎，轮到你了。");
+
+    const cue = substrate.transcript[0];
+    expect(cue?.actorId).toBe(aidm);
+    expect(cue?.mentions).toEqual([zhou]); // the nominee is mentioned on the cue
+  });
+
   test("round invariants: reject 点重复 / 点不在场, full coverage before a new round resets 全员", async () => {
     const substrate = new FakeSubstrate();
     const agent = new FakeNpc({

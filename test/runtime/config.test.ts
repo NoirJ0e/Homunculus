@@ -63,4 +63,29 @@ describe("#28 buildRuntimeConfig — read process secrets, no hardcoded session 
     expect(cfg.npcGenMaxAttempts).toBe(3);
     expect(cfg.npcGenTotalBudgetMs).toBe(90_000);
   });
+
+  test("#56 enumerates the NPC bot pool from BOT_TOKEN_1.. and stops at the first gap", () => {
+    expect(buildRuntimeConfig(fullEnv).botPoolTokens).toEqual([]); // none configured
+
+    const cfg = buildRuntimeConfig({
+      ...fullEnv,
+      BOT_TOKEN_1: "tok-a",
+      BOT_TOKEN_2: "tok-b",
+      BOT_TOKEN_3: "tok-c",
+    });
+    expect(cfg.botPoolTokens).toEqual(["tok-a", "tok-b", "tok-c"]);
+  });
+
+  test("#56 stops the pool at the first missing/blank index (no holes)", () => {
+    const cfg = buildRuntimeConfig({
+      ...fullEnv,
+      BOT_TOKEN_1: "tok-a",
+      // BOT_TOKEN_2 missing → enumeration stops here
+      BOT_TOKEN_3: "tok-c", // ignored (after the gap)
+    });
+    expect(cfg.botPoolTokens).toEqual(["tok-a"]);
+
+    const blank = buildRuntimeConfig({ ...fullEnv, BOT_TOKEN_1: "  " });
+    expect(blank.botPoolTokens).toEqual([]); // blank counts as a gap
+  });
 });

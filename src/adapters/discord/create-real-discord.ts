@@ -239,12 +239,22 @@ export async function createWebhookPostingClient(botToken: string): Promise<Disc
   return {
     async sendWebhookMessage(channelId: string, message: SentMessage): Promise<void> {
       const { send, threadId } = await webhookFor(channelId);
-      const opts: { content: string; username: string; avatarURL?: string; threadId?: string } = {
+      const opts: {
+        content: string;
+        username: string;
+        avatarURL?: string;
+        threadId?: string;
+        allowedMentions?: { users: string[] };
+      } = {
         content: message.content,
         username: message.username,
       };
       if (message.avatarURL !== undefined) opts.avatarURL = message.avatarURL;
       if (threadId !== undefined) opts.threadId = threadId;
+      // #56 cue @真人: enable the user pings the content carries so they push.
+      if (message.allowedUserMentions !== undefined) {
+        opts.allowedMentions = { users: [...message.allowedUserMentions] };
+      }
       await send(opts);
     },
 
