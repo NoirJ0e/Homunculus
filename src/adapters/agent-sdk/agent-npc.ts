@@ -26,7 +26,11 @@ export class AgentNpc implements NpcPort {
   }
 
   async takeTurn(ctx: TurnContext): Promise<NpcTurn> {
-    const prompt = buildNpcPrompt({ persona: this.deps.persona, transcript: ctx.transcript });
+    const prompt = buildNpcPrompt({
+      persona: this.deps.persona,
+      transcript: ctx.transcript,
+      ...(ctx.extraInstructions !== undefined && { extraInstructions: ctx.extraInstructions }),
+    });
     const prose = (await this.deps.generate(prompt)).trim();
     if (prose.length === 0) return { kind: "pass" };
     return { kind: "speak", prose };

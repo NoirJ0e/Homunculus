@@ -73,6 +73,14 @@ export interface RefereeDeps {
   readonly controllers?: ControllerRegistry;
   /** The dice/judge authority — resolves called checks (ADR-0001 修订, v1 = NativeDice). */
   readonly dice?: DicePort;
+  /**
+   * Resolve which present actors a piece of prose @-mentions (#57 协商通道). When
+   * an actor's post mentions a teammate, the engine queues that post as a directed
+   * `<extraInstruction>` for the teammate (injected when it is next nominated),
+   * while the post itself stays in the shared record (方案 R). Returns the
+   * mentioned actors (excluding the speaker). Omit → no coordination channel.
+   */
+  readonly mentionsOf?: (prose: string, speaker: ActorId) => readonly ActorId[];
   /** Read-only mechanical sheets — the DM reads via `read_card` (ADR-0001/0002). */
   readonly cards?: CardStore;
   /** The plot spine (ADR-0007). When present, the referee tracks a per-branch
@@ -195,6 +203,12 @@ export class Referee {
    * the engine invariant that backs serial 点名: 全员必覆盖才进下一轮、不重复点。
    */
   private roundRemaining: Set<ActorId> | null = null;
+  /**
+   * Directed instructions queued per actor by teammates who @-mentioned it (#57).
+   * Filled when a post mentions someone (via `deps.mentionsOf`); drained into the
+   * actor's TurnContext when it is next pulled up, then cleared (consumed once).
+   */
+  private readonly injections = new Map<ActorId, string[]>();
 
   constructor(private readonly deps: RefereeDeps) {
     const config = deps.scenes ?? {};
@@ -633,7 +647,15 @@ export class Referee {
    *  immediately (后手看前手, ADR-0003). */
   private ctx(scene: SceneId, actor: ActorId): TurnContext {
     const transcript = this.scoped ? this.scenes.horizon(actor) : [...this.scenes.fullLog()];
-    return { sceneId: scene, actorId: actor, transcript };
+    // #57: drain any directed instructions queued for this actor (consume once).
+    const pending = this.injections.get(actor);
+    if (pending !== undefined && pending.length > 0) this.injections.delete(actor);
+    return {
+      sceneId: scene,
+      actorId: actor,
+      transcript,
+      ...(pending !== undefined && pending.length > 0 && { extraInstructions: pending }),
+    };
   }
 
   private async post(
@@ -650,7 +672,27 @@ export class Referee {
     };
     this.scenes.record(post);
     await this.deps.substrate.emit(post);
+    // #57 协商通道: a teammate's post that @-mentions another present actor queues
+    // a directed instruction for them (injected when they're next nominated). The
+    // DM's own narration/cue is exempt (it's not a teammate request).
+    if (actor !== this.deps.aidmId && this.deps.mentionsOf) {
+      for (const target of this.deps.mentionsOf(prose, actor)) {
+        if (target !== actor) this.queueInstruction(target, `${actor} 对你说：${prose}`);
+      }
+    }
     return post;
+  }
+
+  /**
+   * Queue a directed instruction for an actor (#57 协商通道). Called by the engine
+   * when a teammate @-mentions someone, and by the live gateway when a PLAYER
+   * @-mentions a bot. Held until the actor is next nominated, then injected into
+   * its prompt as `<extraInstruction>` and consumed.
+   */
+  queueInstruction(target: ActorId, text: string): void {
+    const q = this.injections.get(target) ?? [];
+    q.push(text);
+    this.injections.set(target, q);
   }
 
   /** The omniscient (AIDM) view of the full record — for inspection / assertions. */

@@ -70,4 +70,11 @@ export interface TurnContext {
   readonly persona?: PersonaCore;
   /** Recalled episodic memories relevant to this turn (#7). */
   readonly memories?: readonly EpisodicMemory[];
+  /**
+   * Directed instructions queued for this actor by teammates who @-mentioned it
+   * (#57 协商通道). Held until this actor is nominated, then injected into its
+   * prompt as `<extraInstruction>` — a strong directed nudge, on top of the
+   * mention also being visible in the shared scene record (方案 R).
+   */
+  readonly extraInstructions?: readonly string[];
 }

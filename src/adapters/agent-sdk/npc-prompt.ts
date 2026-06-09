@@ -12,6 +12,12 @@ export interface NpcPromptInput {
   readonly persona: string;
   /** Posts visible to this NPC right now (its horizon, incl. this round's). */
   readonly transcript: readonly Post[];
+  /**
+   * Directed asks queued by teammates who @-mentioned this NPC (#57 协商通道) —
+   * injected as a strong nudge it should weigh this turn (it still acts in
+   * character; it may comply, deflect, or refuse).
+   */
+  readonly extraInstructions?: readonly string[];
 }
 
 export function buildNpcPrompt(input: NpcPromptInput): string {
@@ -20,15 +26,27 @@ export function buildNpcPrompt(input: NpcPromptInput): string {
       ? input.transcript.map((p) => `${p.actorId}：${p.prose}`).join("\n")
       : "（场景刚开始，还没有人发言。）";
 
+  const asks = input.extraInstructions ?? [];
+  const asksBlock =
+    asks.length > 0
+      ? [
+          "",
+          "## 队友刚刚对你说的话（请把它纳入你这一拍的考量）",
+          ...asks.map((a) => `<extraInstruction>${a}</extraInstruction>`),
+        ]
+      : [];
+
   return [
     "## 你是谁",
     input.persona,
     "",
     "## 此刻场上发生了什么（只有你能看到的部分）",
     log,
+    ...asksBlock,
     "",
     "## 现在轮到你",
     "用第一人称、贴合你人格地行动或发言一句——只出你这个角色会说/做的纯叙事，不要写旁白、不要替别人发言、不要描述规则数值。",
+    "如果队友请你帮忙（比如让你掷个检定/帮忙调查），就在这一拍回应他——可以答应、推脱或拒绝，但要贴合你的人格。",
     "如果此刻你这个角色确实没有任何要说或做的，就回复空（什么都不输出）。",
   ].join("\n");
 }

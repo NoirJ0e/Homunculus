@@ -30,6 +30,8 @@ export interface MultiBotSubstrateDeps {
   readonly threadMap: SceneThreadMap;
   /** Resolve an actor's assigned pool bot, or undefined (→ webhook fallback). */
   readonly botFor: (actor: ActorId) => PoolBot | undefined;
+  /** Sink for non-fatal substrate errors (e.g. a pool-bot send that fell back). */
+  readonly onError?: (where: string, error: unknown) => void;
 }
 
 export class MultiBotSubstrate implements SubstratePort {
@@ -59,11 +61,18 @@ export class MultiBotSubstrate implements SubstratePort {
     // An NPC with its own bot speaks AS that bot (its nickname = the NPC).
     const bot = this.deps.botFor(post.actorId);
     if (bot !== undefined) {
-      await bot.send(threadId, content, mentionUserIds.length > 0 ? mentionUserIds : undefined);
-      return;
+      try {
+        await bot.send(threadId, content, mentionUserIds.length > 0 ? mentionUserIds : undefined);
+        return;
+      } catch (e) {
+        // A pool bot that can't post (missing channel perms, not in the channel,
+        // rate-limited) must NOT throw up through nominate and stall the whole
+        // round — fall back to the shared webhook persona so the beat continues.
+        this.deps.onError?.(`pool bot send failed for ${post.actorId}; webhook fallback`, e);
+      }
     }
 
-    // Otherwise (AIDM / overflow NPC) → the shared webhook persona.
+    // Otherwise (AIDM / overflow NPC / pool-send fallback) → the webhook persona.
     const persona = this.personaIndex.get(post.actorId);
     if (persona === undefined) {
       throw new DiscordSubstrateError(

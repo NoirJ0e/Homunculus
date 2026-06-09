@@ -35,11 +35,18 @@ export async function createBotPool(tokens: readonly string[]): Promise<PoolBot[
   const { Client, GatewayIntentBits } = await import("discord.js");
 
   const pool: PoolBot[] = [];
-  for (const token of tokens) {
+  for (const [i, token] of tokens.entries()) {
     const client = new Client({
       intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages],
     });
-    await client.login(token);
+    try {
+      await client.login(token);
+    } catch (e) {
+      // A bad/revoked pool token must NOT crash the whole process at boot — skip
+      // it (that NPC falls back to a webhook persona) and keep the table alive.
+      console.error(`[bot-pool] BOT_TOKEN_${i + 1} login failed, skipping:`, (e as Error).message);
+      continue;
+    }
     const userId = client.user?.id ?? "";
 
     const send = async (
