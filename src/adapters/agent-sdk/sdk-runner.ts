@@ -56,6 +56,7 @@ export async function npcGenerate(
 export function dmQueryStream(referee: Referee, systemPrompt: string): AsyncIterable<unknown> {
   return query({
     prompt:
+      "【准备】如果 narrate / nominate / call_check / advance_milestone 等 engine 工具没有直接列在你的可用工具里（它们可能是延迟加载的），先调用一次 ToolSearch 用 `select:mcp__engine__narrate,mcp__engine__nominate,mcp__engine__call_check,mcp__engine__advance_milestone,mcp__engine__discover_lead,mcp__engine__advance_clock` 把它们加载进来，再开始。" +
       "开始主持这场牌局：先用 narrate 发一段开场叙事，再用 nominate 逐个点名在场角色（一次只点一个，写一句 in-fiction 的点名 cue）；" +
       "每点一个就看它返回的「这一拍做了什么 + 还剩谁没点」，据此推进；把本轮在场的人都点完后再 narrate 收尾、进下一轮。" +
       "当你从 nominate 的返回里看见某个角色的行动需要机械结算（检定/攻击）时，用 call_check 对该角色喊检定（声明技能、难度=DC、mode），" +
