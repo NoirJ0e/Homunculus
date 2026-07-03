@@ -78,3 +78,6 @@ dist/
 
 # agent worktrees / local state
 .claude/
+
+# spec-workflow MCP scaffolding (templates only, no content)
+.spec-workflow/

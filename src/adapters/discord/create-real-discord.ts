@@ -3,7 +3,7 @@
  *
  * This module uses a DYNAMIC import("discord.js") so the real Discord SDK is
  * NEVER loaded in tests. Tests inject stub DiscordClients directly into
- * DiscordSubstrate and DiscordInbox — this file is never imported by tests.
+ * DiscordSubstrate — this file is never imported by tests.
  *
  * ─────────────────────────────────────────────────────────────────────────────
  * HUMAN RUNBOOK — Setting up a real Discord integration
@@ -30,7 +30,6 @@
  *
  *   import { createRealDiscordClient } from "./src/adapters/discord/create-real-discord.js";
  *   import { DiscordSubstrate } from "./src/adapters/discord/discord-substrate.js";
- *   import { DiscordInbox } from "./src/adapters/discord/discord-inbox.js";
  *   import { actorId, sceneId } from "./src/domain/ids.js";
  *
  *   const personas = [
@@ -48,13 +47,12 @@
  *     webhookUrl: process.env.DISCORD_WEBHOOK_URL!,
  *   });
  *   const substrate = new DiscordSubstrate(client, personas, threadMap);
- *   const inbox     = new DiscordInbox(client, personas, threadMap);
  *
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
 import type { DiscordClient, SentMessage } from "./discord-substrate.js";
-import type { InboundMessage } from "./discord-inbox.js";
+import type { InboundMessage } from "./message-events.js";
 
 // ---------------------------------------------------------------------------
 // Production client config

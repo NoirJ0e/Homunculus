@@ -111,16 +111,15 @@ const personas: ActorPersona[] = [
 ```typescript
 import { createRealDiscordClient } from "./src/adapters/discord/create-real-discord.js";
 import { DiscordSubstrate } from "./src/adapters/discord/discord-substrate.js";
-import { DiscordInbox } from "./src/adapters/discord/discord-inbox.js";
 
 const client = await createRealDiscordClient({
   botToken:   process.env.DISCORD_BOT_TOKEN!,
   webhookUrl: process.env.DISCORD_WEBHOOK_URL!,
 });
 const substrate = new DiscordSubstrate(client, personas, threadMap);
-const inbox     = new DiscordInbox(client, personas, threadMap);
 
-// Pass substrate and inbox to the engine...
+// Human input arrives via the gateway (createGatewaySource → dispatcher →
+// PushInbox); pass the substrate to the engine...
 ```
 
 ### Step 7: Verify one full beat manually
@@ -166,8 +165,7 @@ the Discord gateway** waiting for you to type. Real-time waiting is gateway-push
 Content Intent** on. An AFK human = the await never resolves (ADR-0003 hold);
 Ctrl-C to stop (serializable pause/resume is a later slice).
 
-> Note: `DiscordInbox` (REST poll) remains for tests; production uses
-> `GatewayInbox` (gateway push). Known v1 cosmetic: your own message is also
+> Note: Known v1 cosmetic: your own message is also
 > re-emitted as a "玩家" webhook post (the engine records every turn); harmless,
 > tidied in a later slice.
 

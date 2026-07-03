@@ -2,7 +2,8 @@
  * scene-threads.ts — Thread ↔ scene and actor ↔ persona mapping types.
  *
  * These are plain injected data structures (not classes). The caller
- * constructs them and passes them to DiscordSubstrate and DiscordInbox.
+ * constructs them and passes them to the substrate (DiscordSubstrate /
+ * MultiBotSubstrate).
  *
  * 风味级映射:
  *   - Discord thread = 场景 (scene)
@@ -49,9 +50,9 @@ export interface ActorPersona {
    */
   readonly avatarURL?: string;
   /**
-   * Optional Discord user (snowflake) ID for the human player.
-   * Required by DiscordInbox to route inbound messages to the correct actor.
-   * AI agents that only send (never receive via inbox) may omit this.
+   * Optional Discord user (snowflake) ID for the human player. The substrate
+   * renders it as a real `<@id>` mention in nominate cues (#56 cue @真人).
+   * AI agents that speak via webhook/pool bots may omit this.
    */
   readonly discordUserId?: string;
 }

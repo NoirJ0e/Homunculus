@@ -7,8 +7,8 @@ import { parseTopic } from "./channel-routing.js";
  * create-gateway-source.ts — the real discord.js gateway client behind
  * MessageEventSource (ADR-0010 Phase 1 wiring). HITL: dynamic-imports discord.js
  * (never loaded in tests; tests use a fake MessageEventSource). Logs in with the
- * bot token, pushes every non-bot message as a GatewayMessage so GatewayInbox
- * can resolve a human's awaited turn in real time.
+ * bot token, pushes every non-bot message as a GatewayMessage so the dispatcher
+ * (→ PushInbox) can resolve a human's awaited turn in real time.
  *
  * Requires the Message Content Intent enabled on the bot (see the README).
  */

@@ -16,8 +16,8 @@ export interface OocMarker {
 export type MappedMessage = HumanTurn | OocMarker;
 
 /**
- * Maps a raw Discord message content string to a MappedMessage. Shared by the
- * REST-poll DiscordInbox and the gateway-push GatewayInbox so the inbound
+ * Maps a raw Discord message content string to a MappedMessage. Every inbound
+ * transport (today the gateway-push → PushInbox path) goes through here so the
  * convention is identical regardless of transport.
  *
  * Dispatch table by leading symbol (ADR-0011 前缀表):

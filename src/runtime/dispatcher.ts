@@ -13,7 +13,7 @@
  * SDK. Everything crosses a constructor seam — the event source, the routing
  * resolver, the three per-role query runners, and the deleteSession hook — so
  * the whole router is exercised headless with hand-driven fakes (ADR-0010 DI
- * style, mirroring `dm-driver`'s `runQuery` thunk and `GatewayInbox`'s source).
+ * style, mirroring `dm-driver`'s `runQuery` thunk).
  */
 import type { ChannelRole, ChannelRouting } from "../adapters/discord/channel-routing.js";
 import type { GatewayMessage } from "../adapters/discord/message-events.js";

@@ -45,7 +45,7 @@
 import type { Post } from "../../domain/post.js";
 import type { SubstratePort } from "../../ports/substrate.js";
 import type { ActorPersona, SceneThreadMap } from "./scene-threads.js";
-import type { InboundMessage } from "./discord-inbox.js";
+import type { InboundMessage } from "./message-events.js";
 
 // ---------------------------------------------------------------------------
 // Public transport interface (DI-able)
