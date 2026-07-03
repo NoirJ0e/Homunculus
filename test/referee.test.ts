@@ -129,6 +129,33 @@ describe("#52 nominate (串行点名 + 眼睛 + 轮不变量)", () => {
       expect(res.remaining).toEqual([tie]); // 周慎 已点，本轮剩铁拳
     }
     expect(substrate.transcript.map((p) => p.prose)).toContain("周慎点了点头。");
+    // arch-C3: the engine renders the DM receipt itself — result + 还剩谁.
+    expect(res.dmText).toContain("周慎点了点头。");
+    expect(res.dmText).toContain("还剩");
+    expect(res.dmText).toContain(tie);
+  });
+
+  test("arch-C3: 拍回执由引擎渲染 — 被拒带理由、全点完带收尾语", async () => {
+    const substrate = new FakeSubstrate();
+    const agent = new FakeNpc({
+      "npc-zhoushen": [{ kind: "speak", prose: "a" }],
+      "npc-tiequan": [{ kind: "speak", prose: "b" }],
+    });
+    const referee = new Referee({
+      aidmId: aidm,
+      substrate,
+      npcFor: () => agent,
+      presentActors: [zhou, tie],
+    });
+
+    await referee.nominate(tavern, zhou);
+    const dup = await referee.nominate(tavern, zhou); // 同轮重复 → 拒
+    expect(dup.kind).toBe("rejected");
+    expect(dup.dmText).toContain("点名被拒");
+    expect(dup.dmText).toContain("本轮已行动");
+
+    const last = await referee.nominate(tavern, tie); // 全员点完
+    expect(last.dmText).toContain("本轮已全部点完");
   });
 
   test("the in-fiction cue (desc) is posted under the DM before the actor acts", async () => {
@@ -281,6 +308,21 @@ describe("#54 检定硬请求地板（玩家显式请求 → pending intent → 
     await referee.callCheck(player, "侦查", "60"); // DC is the DM's to set
 
     expect(referee.pendingIntents()).toEqual([{ actor: player, skill: "聆听" }]);
+  });
+
+  test("arch-C3: 地板进引擎回执 — 未回应的硬请求随每份 nominate dmText 顶给 DM", async () => {
+    const npc = actorId("npc-zhoushen");
+    const referee = new Referee({
+      aidmId: aidm,
+      substrate: new FakeSubstrate(),
+      npcFor: () => new FakeNpc({ "npc-zhoushen": [{ kind: "speak", prose: "x" }] }),
+      presentActors: [npc],
+    });
+    referee.requestCheck(player, "侦查");
+
+    const res = await referee.nominate(sceneId("t"), npc);
+    expect(res.dmText).toContain("待你回应的玩家检定请求");
+    expect(res.dmText).toContain("侦查");
   });
 
   test("an unanswered intent is surfaced to the DM by the nominate tool — 不可静默丢弃", async () => {

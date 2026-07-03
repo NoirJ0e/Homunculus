@@ -127,13 +127,35 @@ export type AwaitOutcome =
  */
 export type NominateResult =
   /** Nomination refused by the round invariant (点重复 / 点不在场). State unchanged. */
-  | { readonly kind: "rejected"; readonly reason: string; readonly remaining: readonly ActorId[] }
+  | {
+      readonly kind: "rejected";
+      readonly reason: string;
+      readonly remaining: readonly ActorId[];
+      readonly dmText: string;
+    }
   /** A silent human (真人无限期等 = 暂停/存档). The slot stays open for resume. */
-  | { readonly kind: "held"; readonly actor: ActorId; readonly pause: PauseState; readonly remaining: readonly ActorId[] }
+  | {
+      readonly kind: "held";
+      readonly actor: ActorId;
+      readonly pause: PauseState;
+      readonly remaining: readonly ActorId[];
+      readonly dmText: string;
+    }
   /** The actor contributed prose. */
-  | { readonly kind: "acted"; readonly actor: ActorId; readonly prose: string; readonly remaining: readonly ActorId[] }
+  | {
+      readonly kind: "acted";
+      readonly actor: ActorId;
+      readonly prose: string;
+      readonly remaining: readonly ActorId[];
+      readonly dmText: string;
+    }
   /** The actor passed (explicit pass / wake-gated / blank / agent had nothing). */
-  | { readonly kind: "passed"; readonly actor: ActorId; readonly remaining: readonly ActorId[] }
+  | {
+      readonly kind: "passed";
+      readonly actor: ActorId;
+      readonly remaining: readonly ActorId[];
+      readonly dmText: string;
+    }
   /** The actor rolled a check the AIDM had called; the dice authority resolved it. */
   | {
       readonly kind: "checked";
@@ -143,7 +165,15 @@ export type NominateResult =
       readonly success: boolean;
       readonly detail: string;
       readonly remaining: readonly ActorId[];
+      readonly dmText: string;
     };
+
+/** A {@link NominateResult} variant before the engine renders its `dmText`. */
+type NominateOutcome = NominateResult extends infer T
+  ? T extends { dmText: string }
+    ? Omit<T, "dmText">
+    : never
+  : never;
 
 /**
  * A fully serializable snapshot of a Referee's playable state at one beat.
@@ -520,7 +550,7 @@ export class Referee {
       const reason = this.roundRoster(scene).includes(actor)
         ? `${actor} 本轮已行动，不能重复点名`
         : `${actor} 不在场，无法点名`;
-      return { kind: "rejected", reason, remaining: [...this.roundRemaining] };
+      return this.receipt({ kind: "rejected", reason, remaining: [...this.roundRemaining] });
     }
 
     // Post the in-fiction point cue (drama, + the @mention in production) before
@@ -544,7 +574,7 @@ export class Referee {
     if (result.kind === "silent") {
       const pause = pauseFrom(scene, this.deps.aidmId, [actor], new Map([[actor, "silent"]]));
       this.lastPause = pause;
-      return { kind: "held", actor, pause, remaining: [...this.roundRemaining] };
+      return this.receipt({ kind: "held", actor, pause, remaining: [...this.roundRemaining] });
     }
 
     // Acted/passed/rolled → the actor is done this round.
@@ -553,7 +583,7 @@ export class Referee {
 
     const resolved = events.find((e) => e.kind === "check-resolved");
     if (resolved && resolved.kind === "check-resolved") {
-      return {
+      return this.receipt({
         kind: "checked",
         actor,
         skill: resolved.skill,
@@ -561,12 +591,51 @@ export class Referee {
         success: resolved.success,
         detail: resolved.detail,
         remaining,
-      };
+      });
     }
     if (result.kind === "acted") {
-      return { kind: "acted", actor, prose: result.post.prose, remaining };
+      return this.receipt({ kind: "acted", actor, prose: result.post.prose, remaining });
     }
-    return { kind: "passed", actor, remaining };
+    return this.receipt({ kind: "passed", actor, remaining });
+  }
+
+  /**
+   * Render the DM-facing beat receipt for a nominate outcome (arch-C3). The
+   * DM's view of the engine — this-beat result, 本轮还剩谁, and the #54 floor
+   * (any player-requested check the DM hasn't answered rides EVERY receipt, so
+   * it cannot be silently dropped) — is rendered HERE, inside the engine's
+   * test surface, not re-invented per DM front-end (MCP adapter, scripts…).
+   */
+  private receipt(outcome: NominateOutcome): NominateResult {
+    const left =
+      outcome.remaining.length > 0
+        ? `还剩：${outcome.remaining.join("、")}`
+        : "本轮已全部点完";
+    let text: string;
+    switch (outcome.kind) {
+      case "rejected":
+        text = `点名被拒：${outcome.reason}。${left}`;
+        break;
+      case "held":
+        text = `${outcome.actor} 沉默（真人未回应）→ 屏障挂起=暂停/存档；轮到他时仍等他。`;
+        break;
+      case "acted":
+        text = `${outcome.actor}：${outcome.prose}\n${left}`;
+        break;
+      case "passed":
+        text = `${outcome.actor} 过（没有要说/做的）。${left}`;
+        break;
+      case "checked":
+        text = `${outcome.actor} 掷 ${outcome.skill}：${outcome.detail}（${outcome.success ? "成功" : "失败"}，total=${outcome.total}）\n${left}`;
+        break;
+    }
+    // #54 检定硬请求地板：把玩家显式请求、DM 还没回应的检定顶到眼前，不可静默丢弃。
+    const intents = this.pendingIntents();
+    if (intents.length > 0) {
+      const lines = intents.map((i) => `${i.actor} 请求「${i.skill}」`).join("；");
+      text += `\n⚠ 待你回应的玩家检定请求（你来定 DC，别忽略）：${lines}`;
+    }
+    return { ...outcome, dmText: text };
   }
 
   /** The full set of non-DM actors a `nominate` round covers: the configured

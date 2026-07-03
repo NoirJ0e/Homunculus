@@ -37,39 +37,11 @@ export function dmTools(referee: Referee): SdkMcpToolDefinition<any>[] {
       "AIDM 串行点名（取代批量 await_actors，ADR-0003 改写）：点名一个在场角色 actor、附一句 in-fiction 的 cue 散文 desc，引擎阻塞这一槽直到该角色出手/掷骰/pass（真人沉默则无限期挂起=暂停/存档），然后把【该角色这一拍做了什么】+【本轮还剩谁没点 remaining】返回给你——你据此决定要不要喊检定、接下来点谁。引擎兜底：只能点 remaining 内的角色，点重复/点不在场会被拒；本轮全员点完才进下一轮（自动重置为全员）。仅 DM 可用。",
       { sceneId: z.string(), actor: z.string(), desc: z.string().optional() },
       async (args) => {
-        const res = await referee.nominate(
-          sceneId(args.sceneId),
-          actorId(args.actor),
-          args.desc,
-        );
-        const left =
-          res.remaining.length > 0 ? `还剩：${res.remaining.join("、")}` : "本轮已全部点完";
-        let text: string;
-        switch (res.kind) {
-          case "rejected":
-            text = `点名被拒：${res.reason}。${left}`;
-            break;
-          case "held":
-            text = `${res.actor} 沉默（真人未回应）→ 屏障挂起=暂停/存档；轮到他时仍等他。`;
-            break;
-          case "acted":
-            text = `${res.actor}：${res.prose}\n${left}`;
-            break;
-          case "passed":
-            text = `${res.actor} 过（没有要说/做的）。${left}`;
-            break;
-          case "checked":
-            text = `${res.actor} 掷 ${res.skill}：${res.detail}（${res.success ? "成功" : "失败"}，total=${res.total}）\n${left}`;
-            break;
-        }
-        // #54 检定硬请求地板：把玩家显式请求、你还没回应的检定顶到你眼前，不可静默丢弃。
-        // 由你定 DC：用 call_check(actor, skill, difficulty) 回应，回应后该条自动消失。
-        const intents = referee.pendingIntents();
-        if (intents.length > 0) {
-          const lines = intents.map((i) => `${i.actor} 请求「${i.skill}」`).join("；");
-          text += `\n⚠ 待你回应的玩家检定请求（你来定 DC，别忽略）：${lines}`;
-        }
-        return { content: [{ type: "text", text }] };
+        // arch-C3: the beat receipt (result + remaining + the #54 intents floor)
+        // is rendered by the ENGINE — this adapter is a pass-through, so every DM
+        // front-end gets the same receipt and the floor can't be forgotten here.
+        const res = await referee.nominate(sceneId(args.sceneId), actorId(args.actor), args.desc);
+        return { content: [{ type: "text", text: res.dmText }] };
       },
     ),
     tool(
