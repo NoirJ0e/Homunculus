@@ -28,3 +28,29 @@ export function assignNpcsToBots(
   });
   return { assignments, overflow };
 }
+
+/**
+ * Bind teammates to pool bots and hand back the actor→bot map the substrate's
+ * `botFor` consults (arch-C1: the same recipe was reinlined in the runner and
+ * every live script). Generic over the bot type so this stays pure; `onBind`
+ * is where the live caller hangs the best-effort nickname write.
+ */
+export function npcBotBindings<B>(
+  teammates: ReadonlyArray<{ readonly id: ActorId; readonly name: string }>,
+  pool: readonly B[],
+  onBind?: (bot: B, name: string) => void,
+): Map<ActorId, B> {
+  const { assignments } = assignNpcsToBots(
+    teammates.map((t) => t.id),
+    pool.length,
+  );
+  const byActor = new Map<ActorId, B>();
+  for (const t of teammates) {
+    const idx = assignments.get(t.id);
+    if (idx === undefined) continue;
+    const bot = pool[idx]!;
+    byActor.set(t.id, bot);
+    onBind?.(bot, t.name);
+  }
+  return byActor;
+}

@@ -1,40 +1,26 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { DiscordAdminPort } from "../ports/discord-admin.js";
 import type { DiscordClient } from "../adapters/discord/discord-substrate.js";
-import { actorId, sceneId as brandScene, campaignId, type CampaignId } from "../domain/ids.js";
-import type { ActorPersona } from "../adapters/discord/scene-threads.js";
-import { DiscordSubstrate } from "../adapters/discord/discord-substrate.js";
-import { MultiBotSubstrate } from "../adapters/discord/multi-bot-substrate.js";
+import { sceneId as brandScene, campaignId, type CampaignId } from "../domain/ids.js";
+import type { TimeoutRetryOptions } from "../adapters/agent-sdk/timeout-npc.js";
+import { dmQueryStream } from "../adapters/agent-sdk/sdk-runner.js";
 import type { PoolBot } from "../adapters/discord/bot-pool.js";
-import { Referee } from "../engine/referee.js";
-import { mapRoster } from "../engine/roster.js";
-import { assignNpcsToBots } from "./npc-bot-assignment.js";
-import { AgentNpc } from "../adapters/agent-sdk/agent-npc.js";
-import {
-  withTimeoutRetry,
-  realClock,
-  type TimeoutRetryOptions,
-} from "../adapters/agent-sdk/timeout-npc.js";
-import { buildDmSystemPrompt } from "../adapters/agent-sdk/dm-prompt.js";
 import { buildConciergePrompt } from "../adapters/agent-sdk/concierge-prompt.js";
 import { createCardMcpServer, type CardDraftTarget } from "../adapters/agent-sdk/card-mcp.js";
+import { assembleTable } from "./table-assembly.js";
 import { createDiscordAdminMcpServer } from "../adapters/agent-sdk/discord-admin-mcp.js";
 import { createGenesisMcpServer } from "../adapters/agent-sdk/genesis-mcp.js";
 import type { CampaignStore } from "../ports/campaign-store.js";
+import type { CardStore } from "../ports/card-store.js";
 import type { SoulStore } from "../ports/soul-store.js";
 import type { RosterStore } from "../ports/roster-store.js";
-import type { CampaignBible } from "../domain/campaign.js";
-import { dmQueryStream, npcGenerate } from "../adapters/agent-sdk/sdk-runner.js";
-import { assembleAidmCast } from "./aidm-cast.js";
 import { runDmDriver } from "./dm-driver.js";
-import { PushInbox } from "./push-inbox.js";
 import { StreamInputChannel } from "./stream-input.js";
 import { postCardAssistantText } from "./card-creation.js";
 import { CheckSessionTable } from "./check-session.js";
 import type { QueryHandle, QueryRunner, QueryRunnerContext } from "./dispatcher.js";
 import type { DicePort } from "../ports/dice.js";
 import type { TraceSink } from "../ports/trace-sink.js";
-import { messageToTraceEvents } from "../adapters/agent-sdk/trace-tap.js";
 
 /**
  * runners.ts — the three per-role QueryRunners the dispatcher spins up (ADR-0011
@@ -58,20 +44,9 @@ const CONCIERGE_TOOLS = [
   "mcp__genesis__genesis_campaign",
 ] as const;
 
-/**
- * Build the AIDM's opening brief from a registered CampaignBible — so it narrates
- * ON-THEME (the #28-live bug was the AIDM seeing only a category id). Carries the
- * AIDM-private secretTruth (底牌) + the opening milestone's goal/cue. Pure + tested.
- */
-export function buildCampaignBrief(bible: CampaignBible): string {
-  const opening = bible.milestones[0];
-  const lines = [bible.secretTruth];
-  if (opening !== undefined) {
-    lines.push(`\n【开局】目标：${opening.goal}`);
-    lines.push(`入场引子：${opening.enterCue}`);
-  }
-  return lines.join("\n");
-}
+// buildCampaignBrief moved to domain/campaign.ts (arch-C1: the table-assembly
+// module needs it and importing runners from there would be circular).
+export { buildCampaignBrief } from "../domain/campaign.js";
 
 export interface RunnerDeps {
   /** Shared webhook-out client (one per process); per-channel substrates wrap it. */
@@ -115,6 +90,12 @@ export interface RunnerDeps {
    * (no dice authority). Per-campaign so sheets are scoped to the right campaign.
    */
   readonly makeDice?: (campaign: CampaignId) => DicePort | undefined;
+  /**
+   * The campaign's READ-ONLY card store for the DM's `read_card` tool
+   * (ADR-0001/0002). Wired alongside `makeDice` (same backing sheets); absent →
+   * the tool reports no card (the pre-arch-C1 production behavior).
+   */
+  readonly makeCards?: (campaign: CampaignId) => CardStore | undefined;
   /**
    * The channelId → live-AIDM-session registry the `/check` handler reaches
    * through (#44). The AIDM runner binds a handle on spin-up; the handler injects
@@ -215,120 +196,36 @@ export function makeRunners(deps: RunnerDeps): Runners {
     const scene = brandScene(sceneName);
     const campaign = campaignId(ctx.routing.campaign);
 
-    const aidm = actorId("aidm");
-    const human = actorId("player");
-
     // Observability: one trace per session, recording every agent's stream.
     const runId = `${ctx.routing.campaign}-${Date.now()}`;
     const sink = deps.makeTraceSink?.(campaign, runId);
-    const observe = sink
-      ? (agent: string) =>
-          (message: unknown): void => {
-            for (const ev of messageToTraceEvents(agent, runId, message)) sink.record(ev);
-          }
-      : undefined;
 
-    // One NpcPort per teammate (#51 修共脑): each gets its OWN AgentNpc, its own
-    // persona, and its own `generate` — traced under its REAL name (no more
-    // hardcoded `npc:teammates[0]`) and, when configured, wrapped with the #53
-    // timeout/retry guard so a stuck agent passes instead of freezing the table.
-    const makeNpc = ({
-      soul,
-      persona,
-    }: {
-      soul: import("../domain/soul.js").Soul;
-      persona: string;
-    }): AgentNpc => {
-      const label = `npc:${soul.personaCore.name}`;
-      const base = observe ? (p: string) => npcGenerate(p, observe(label)) : npcGenerate;
-      const generate = deps.npcTimeout
-        ? withTimeoutRetry(base, deps.npcTimeout, realClock)
-        : base;
-      return new AgentNpc({ persona, generate });
-    };
-
-    // The human player's real Discord id (for the cue @真人 ping, #56) — the first
-    // human seat in the campaign roster (set-roster stores it on the entry).
-    const humanDiscordId = (deps.rosterStore.get(campaign) ?? []).find(
-      (e) => e.kind === "human",
-    )?.discordUserId;
-
-    // Load the campaign's verified, bound AI teammates from the stores — no more
-    // inlined genesis. The NPC persona comes from the SAVED soul.
-    const cast = assembleAidmCast({
-      rosterStore: deps.rosterStore,
-      soulStore: deps.soulStore,
-      campaign,
-      humanId: human,
-      makeNpc,
-      ...(humanDiscordId !== undefined && { humanDiscordId }),
-    });
-    if (cast.degraded) {
-      onError(`aidm:${ctx.channelId}`, new Error("no bound AI teammate — AIDM opening solo"));
-    }
-
-    const personas: ActorPersona[] = [{ actorId: aidm, username: "地下城主" }, ...cast.personas];
-
-    // The channel IS the scene: route every post to ctx.channelId.
-    const threadMap = { [scene]: ctx.channelId };
-
-    // #56 — bind each teammate to its own pool bot (a real @-able identity). With
-    // a pool, NPCs post through MultiBotSubstrate (their bot's nickname = the NPC);
-    // without one, degrade to the single-webhook persona substrate.
-    const pool = deps.botPool ?? [];
-    let substrate;
-    if (pool.length > 0) {
-      const { assignments } = assignNpcsToBots(
-        cast.teammates.map((t) => t.id),
-        pool.length,
-      );
-      const botByActor = new Map<string, PoolBot>();
-      for (const soul of cast.teammates) {
-        const idx = assignments.get(soul.id);
-        if (idx === undefined) continue;
-        const bot = pool[idx]!;
-        botByActor.set(soul.id, bot);
-        // Make the bot appear in-fiction as this NPC (best-effort; non-fatal).
-        if (deps.guildId !== undefined) {
-          void bot.setNickname(deps.guildId, soul.personaCore.name).catch((e) =>
-            onError(`aidm:${ctx.channelId}:nickname`, e),
-          );
-        }
-      }
-      substrate = new MultiBotSubstrate({
-        webhook: deps.discordClient,
-        personas,
-        threadMap,
-        botFor: (a) => botByActor.get(a),
-      });
-    } else {
-      substrate = new DiscordSubstrate(deps.discordClient, personas, threadMap);
-    }
-
-    const inbox = new PushInbox();
-    const roster = mapRoster(cast.rosterKinds);
-
-    // #44 — the campaign's mechanical judge (BCDice in prod). With it, `/check`
-    // and NPC rolls resolve real dice; without it a roll stays a pass.
+    // #44 dice / #45 spine / read_card inputs the table is assembled around.
     const dice = deps.makeDice?.(campaign);
-
-    // #45 — the registered bible carries the plot spine (milestones + world
-    // clocks, ADR-0007). Passing it as `campaign` makes the live Referee track a
-    // per-branch milestone cursor + the world clocks, so the AIDM's
-    // advance_milestone / discover_lead / advance_clock tools act on real state.
+    const cards = deps.makeCards?.(campaign);
     const bible = campaignStore.get(campaign);
 
-    const referee = new Referee({
-      aidmId: aidm,
-      substrate,
-      humanInbox: inbox,
-      roster,
-      npcFor: cast.npcFor,
-      // #52 — the round roster `nominate` covers: the human + each bound teammate.
-      presentActors: [human, ...cast.teammates.map((t) => t.id)],
+    // arch-C1 — the whole opening recipe (per-NPC agents + trace taps + bot-pool
+    // substrate + Referee + DM prompt) lives in the table-assembly module; this
+    // runner keeps only its own lifecycle: the sink, /check binding, teardown,
+    // and the long-lived dm-driver.
+    const table = assembleTable({
+      scene,
+      channelId: ctx.channelId,
+      campaign,
+      rosterStore: deps.rosterStore,
+      soulStore: deps.soulStore,
+      webhook: deps.discordClient,
+      ...(deps.botPool !== undefined && { botPool: deps.botPool }),
+      ...(deps.guildId !== undefined && { guildId: deps.guildId }),
       ...(dice !== undefined && { dice }),
-      ...(bible !== undefined && { campaign: bible }),
+      ...(cards !== undefined && { cards }),
+      ...(bible !== undefined && { bible }),
+      ...(deps.npcTimeout !== undefined && { npcTimeout: deps.npcTimeout }),
+      ...(sink !== undefined && { traceSink: sink, runId }),
+      onError,
     });
+    const { referee, inbox, systemPrompt, observe } = table;
 
     // #44 — register this channel's live AIDM session so the `/check` handler can
     // resolve the invoker's pending check by injecting a roll turn into the inbox.
@@ -341,30 +238,6 @@ export function makeRunners(deps: RunnerDeps): Runners {
       requestCheck: (actor, skill) => referee.requestCheck(actor, skill),
     });
     teardowns.set(ctx.channelId, () => deps.checkSessions?.delete(ctx.channelId));
-
-    const campaignBrief = bible
-      ? buildCampaignBrief(bible)
-      : `战役 ${ctx.routing.campaign}：未登记战役语境，按通用开场处理。`;
-    const teammateNames = cast.teammates.map((t) => t.personaCore.name).join("、");
-    const opening =
-      cast.teammates.length > 0
-        ? `在主线频道开场，承接玩家与队友 ${teammateNames} 的行动。`
-        : "在主线频道开场，承接玩家的行动（暂无 AI 队友，独自开场）。";
-    const systemPrompt = buildDmSystemPrompt({
-      brief: `${campaignBrief}\n\n${opening}`,
-      sceneId: scene,
-      cast: [
-        // #58 — display names ride along so the DM never invents one from the id.
-        ...cast.teammates.map((t) => ({
-          actorId: t.id,
-          role: "npc" as const,
-          name: t.personaCore.name,
-        })),
-        { actorId: human, role: "human" as const },
-      ],
-      // #58 — per-system difficulty phrasing (CoC7 bands vs D&D5e DC/AC).
-      ...(bible?.system && { system: bible.system }),
-    });
 
     // Feed the trigger message so the first await_actors has the human's turn.
     inbox.deliver(ctx.firstMessage);

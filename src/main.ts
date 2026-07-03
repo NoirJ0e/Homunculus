@@ -116,6 +116,9 @@ const bcdiceEvaluator = new LibBcdiceEvaluator();
 const checkSessions = new CheckSessionTable();
 const makeDice = (campaign: CampaignId) =>
   new BcdiceDice(new FileCardStore(dataDir, campaign), bcdiceEvaluator);
+// Same backing sheets, handed to the DM's read_card tool (arch-C1 — production
+// read_card used to come back empty; only the scripts wired a card store).
+const makeCards = (campaign: CampaignId) => new FileCardStore(dataDir, campaign);
 
 // Observability (调优基建): every AIDM session records its agents' streams to
 // `data/traces/<campaign>/<runId>.{jsonl,md}` for eyeball debugging + the
@@ -139,6 +142,7 @@ const runners = makeRunners({
   guildId: cfg.guildId,
   onError: (where, error) => console.error(`[runner-error] ${where}`, error),
   makeDice,
+  makeCards,
   checkSessions,
   ...(makeTraceSink && { makeTraceSink }),
   // #53 — agent-slot timeout/retry knobs (.env NPC_GEN_*); a stuck teammate

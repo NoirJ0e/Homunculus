@@ -15,22 +15,14 @@ import { Client, GatewayIntentBits, ChannelType } from "discord.js";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { buildRuntimeConfig } from "../src/runtime/config.js";
-import { actorId as A, sceneId as S, type ActorId } from "../src/domain/ids.js";
-import { Referee } from "../src/engine/referee.js";
+import { actorId as A, campaignId, sceneId as S, type ActorId } from "../src/domain/ids.js";
+import { assembleTable } from "../src/runtime/table-assembly.js";
 import { createWebhookPostingClient } from "../src/adapters/discord/create-real-discord.js";
 import { createBotPool } from "../src/adapters/discord/bot-pool.js";
-import { MultiBotSubstrate } from "../src/adapters/discord/multi-bot-substrate.js";
-import { AgentNpc } from "../src/adapters/agent-sdk/agent-npc.js";
-import { npcGenerate } from "../src/adapters/agent-sdk/sdk-runner.js";
-import { withTimeoutRetry, realClock } from "../src/adapters/agent-sdk/timeout-npc.js";
-import { assignNpcsToBots } from "../src/runtime/npc-bot-assignment.js";
 import { BcdiceDice } from "../src/adapters/dice/bcdice-dice.js";
 import { LibBcdiceEvaluator } from "../src/adapters/dice/bcdice-evaluator.js";
 import { FakeCardStore } from "../src/adapters/memory/fake-card-store.js";
 import { createSoul, type Soul } from "../src/domain/soul.js";
-import { buildNpcPersona } from "../src/runtime/aidm-cast.js";
-import type { NpcPort } from "../src/ports/npc.js";
-import type { ActorPersona } from "../src/adapters/discord/scene-threads.js";
 import type { CharacterSheet } from "../src/ports/card-store.js";
 import type { CampaignBible } from "../src/domain/campaign.js";
 
@@ -43,12 +35,12 @@ const NAME: Record<string, string> = { [BROM]: "布罗姆", [KIRA]: "凯拉", [A
 const souls: Record<string, Soul> = {
   [BROM]: createSoul(BROM, {
     name: "布罗姆",
-    temperament: "沉默寡言的老雇佣兵战士，靠盾墙和直觉活过三场战争；先护同伴再挥剑",
+    temperament: "沉默寡言的老雇佣兵战士，靠盾墙和直觉活过三场战争；先护同伴再挥剑。低魔奇幻世界雇佣兵二人组之一，正在地窖遭遇战中，回应简短一两句",
     goals: ["把这趟护送活干完，谁都别死"],
   }),
   [KIRA]: createSoul(KIRA, {
     name: "凯拉",
-    temperament: "机敏毒舌的精灵游侠，眼睛比谁都尖；嘴上嫌弃布罗姆，箭永远补在他身侧",
+    temperament: "机敏毒舌的精灵游侠，眼睛比谁都尖；嘴上嫌弃布罗姆，箭永远补在他身侧。低魔奇幻世界雇佣兵二人组之一，正在地窖遭遇战中，回应简短一两句",
     goals: ["活着，并且比布罗姆先发现危险"],
   }),
 };
@@ -74,12 +66,6 @@ const sheets: Record<string, CharacterSheet> = {
   },
 };
 
-const NAME_TO_ID: Array<[string, ActorId]> = [["布罗姆", BROM], ["凯拉", KIRA]];
-const mentionsOf = (prose: string, speaker: ActorId): ActorId[] => {
-  const hits = new Set<ActorId>();
-  for (const [n, id] of NAME_TO_ID) if (id !== speaker && prose.includes(n)) hits.add(id);
-  return [...hits];
-};
 
 const stamp = `${Date.now()}`;
 const outDir = join("data", "headless");
@@ -111,27 +97,6 @@ async function main(): Promise<void> {
   const pool = await createBotPool(cfg.botPoolTokens);
   step(`🟢 池 ${pool.length} bots\n`);
 
-  const personas: ActorPersona[] = [
-    { actorId: AIDM, username: "地下城主" },
-    { actorId: BROM, username: "布罗姆" },
-    { actorId: KIRA, username: "凯拉" },
-  ];
-  const { assignments } = assignNpcsToBots([...NPCS], pool.length);
-  const botByActor = new Map<string, (typeof pool)[number]>();
-  for (const id of NPCS) {
-    const idx = assignments.get(id);
-    if (idx === undefined) continue;
-    botByActor.set(id, pool[idx]!);
-    await pool[idx]!.setNickname(cfg.guildId, NAME[id]!).catch(() => {});
-  }
-  const substrate = new MultiBotSubstrate({
-    webhook,
-    personas,
-    threadMap: { [scene]: channelId },
-    botFor: (a) => botByActor.get(a),
-    onError: (w, e) => step(`⚠ ${w}: ${String(e)}`),
-  });
-
   const cards = new FakeCardStore(sheets);
   // The whole point of this run: combat judged by the PRODUCTION BCDice engine
   // (DungeonsAndDragons5 `AT±mod>=AC`), never before exercised live.
@@ -152,35 +117,25 @@ async function main(): Promise<void> {
     bespokeRules: {},
   };
 
-  const hold: { ref?: Referee } = {};
-  const makeNpc = (soul: Soul): NpcPort => {
-    const persona = `${buildNpcPersona(soul)}\n（低魔奇幻世界的雇佣兵二人组，正在地窖遭遇战里并肩作战。回应简短，一两句即可。）`;
-    const gen = withTimeoutRetry(
-      (p) => npcGenerate(p),
-      { timeoutMs: 60_000, maxAttempts: 2, totalBudgetMs: 130_000 },
-      realClock,
-    );
-    const base = new AgentNpc({ persona, generate: gen });
-    return {
-      takeTurn: async (ctx) => {
-        if (hold.ref?.pendingCheckFor(ctx.actorId) !== undefined) return { kind: "roll" };
-        return base.takeTurn(ctx);
-      },
-    };
-  };
-  const ports: Record<string, NpcPort> = { [BROM]: makeNpc(souls[BROM]!), [KIRA]: makeNpc(souls[KIRA]!) };
-
-  const ref = new Referee({
-    aidmId: AIDM,
-    substrate,
+  // arch-C1: the table comes from the PRODUCTION assembleTable recipe.
+  const table = assembleTable({
+    scene,
+    channelId,
+    campaign: campaignId("cellar-combat"),
+    rosterStore: { get: () => NPCS.map((id) => ({ actorId: id, kind: "ai" as const, approved: true })), set() {}, markApproved() {} },
+    soulStore: { load: (id) => souls[id], save() {} },
+    humanSeat: "none",
+    webhook,
+    botPool: pool,
+    guildId: cfg.guildId,
     dice,
     cards,
-    npcFor: (a) => ports[a],
-    presentActors: [...NPCS],
-    mentionsOf,
-    campaign: bible,
+    bible,
+    npcTimeout: { timeoutMs: 60_000, maxAttempts: 2, totalBudgetMs: 130_000 },
+    onError: (w, e) => step(`⚠ ${w}: ${String(e)}`),
   });
-  hold.ref = ref;
+  const ref = table.referee;
+  step(`🟢 牌桌装配完成（生产 assembleTable 路径）：${table.teammates.map((t) => t.personaCore.name).join("、")}`);
 
   // ── DM playbook helpers（每步双写 step-trace） ──────────────────────────────
   const narrate = async (text: string): Promise<void> => {

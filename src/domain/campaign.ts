@@ -63,3 +63,18 @@ export interface CampaignBible {
   /** Residual bucket for bespoke mechanics — essentially empty in v1. */
   readonly bespokeRules: Record<string, unknown>;
 }
+
+/**
+ * Build the AIDM's opening brief from a registered CampaignBible — so it narrates
+ * ON-THEME (the #28-live bug was the AIDM seeing only a category id). Carries the
+ * AIDM-private secretTruth (底牌) + the opening milestone's goal/cue. Pure + tested.
+ */
+export function buildCampaignBrief(bible: CampaignBible): string {
+  const opening = bible.milestones[0];
+  const lines = [bible.secretTruth];
+  if (opening !== undefined) {
+    lines.push(`\n【开局】目标：${opening.goal}`);
+    lines.push(`入场引子：${opening.enterCue}`);
+  }
+  return lines.join("\n");
+}

@@ -16,23 +16,15 @@ import { Client, GatewayIntentBits, ChannelType } from "discord.js";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { buildRuntimeConfig } from "../src/runtime/config.js";
-import { actorId as A, sceneId as S, type ActorId } from "../src/domain/ids.js";
-import { Referee } from "../src/engine/referee.js";
+import { actorId as A, campaignId, sceneId as S, type ActorId } from "../src/domain/ids.js";
+import { assembleTable } from "../src/runtime/table-assembly.js";
 import { createWebhookPostingClient } from "../src/adapters/discord/create-real-discord.js";
 import { createBotPool } from "../src/adapters/discord/bot-pool.js";
-import { MultiBotSubstrate } from "../src/adapters/discord/multi-bot-substrate.js";
-import { AgentNpc } from "../src/adapters/agent-sdk/agent-npc.js";
-import { npcGenerate } from "../src/adapters/agent-sdk/sdk-runner.js";
-import { withTimeoutRetry, realClock } from "../src/adapters/agent-sdk/timeout-npc.js";
-import { assignNpcsToBots } from "../src/runtime/npc-bot-assignment.js";
 import { NativeDice } from "../src/adapters/dice/native-dice.js";
 import { BcdiceDice } from "../src/adapters/dice/bcdice-dice.js";
 import { LibBcdiceEvaluator } from "../src/adapters/dice/bcdice-evaluator.js";
 import { FakeCardStore } from "../src/adapters/memory/fake-card-store.js";
 import { createSoul, type Soul } from "../src/domain/soul.js";
-import { buildNpcPersona } from "../src/runtime/aidm-cast.js";
-import type { NpcPort } from "../src/ports/npc.js";
-import type { ActorPersona } from "../src/adapters/discord/scene-threads.js";
 import type { CharacterSheet } from "../src/ports/card-store.js";
 import type { CampaignBible } from "../src/domain/campaign.js";
 
@@ -59,17 +51,17 @@ const NPCS = [ZHOU, TIE, LIN] as const;
 const souls: Record<string, Soul> = {
   [ZHOU]: createSoul(ZHOU, {
     name: "周慎",
-    temperament: "谨慎多疑、心思缜密的私家侦探；说话简短克制，习惯先观察再开口",
+    temperament: "谨慎多疑、心思缜密的私家侦探；说话简短克制，习惯先观察再开口。1923 上海克系调查团成员，与另两名调查员并肩查案，回应简短一两句",
     goals: ["查清那本古籍的来历与下落"],
   }),
   [TIE]: createSoul(TIE, {
     name: "铁拳·冈",
-    temperament: "鲁莽护短、直来直去的退伍拳手；遇事先冲在前面，看不惯弯弯绕",
+    temperament: "鲁莽护短、直来直去的退伍拳手；遇事先冲在前面，看不惯弯弯绕。1923 上海克系调查团成员，与另两名调查员并肩查案，回应简短一两句",
     goals: ["保护同伴、揪出害人凶手"],
   }),
   [LIN]: createSoul(LIN, {
     name: "林萱",
-    temperament: "冷静细致、见惯生死的女医师；temperament 沉着，重证据与人命",
+    temperament: "冷静细致、见惯生死的女医师；沉着，重证据与人命。1923 上海克系调查团成员，与另两名调查员并肩查案，回应简短一两句",
     goals: ["不让无辜者枉死"],
   }),
 };
@@ -81,18 +73,6 @@ const sheets: Record<string, CharacterSheet> = {
   [LIN]: { system: "coc7", skills: { 医学: 60, 急救: 70, 侦查: 45, 心理学: 60, 聆听: 50 } },
 };
 
-// @-mention resolver for #57: which present teammates does this prose name?
-const NAME_TO_ID: Array<[string, ActorId]> = [
-  ["周慎", ZHOU],
-  ["铁拳·冈", TIE],
-  ["铁拳", TIE],
-  ["林萱", LIN],
-];
-function mentionsOf(prose: string, speaker: ActorId): ActorId[] {
-  const hits = new Set<ActorId>();
-  for (const [n, id] of NAME_TO_ID) if (id !== speaker && prose.includes(n)) hits.add(id);
-  return [...hits];
-}
 
 // ── step trace ──────────────────────────────────────────────────────────────
 const stamp = process.env.RUN_STAMP ?? `${Date.now()}`;
@@ -124,34 +104,6 @@ async function main(): Promise<void> {
   const pool = await createBotPool(cfg.botPoolTokens);
   step(`🟢 NPC bot 池登录：${pool.length} 个 → ${pool.map((b) => b.userId).join(", ")}\n`);
 
-  const personas: ActorPersona[] = [
-    { actorId: AIDM, username: "地下城主" },
-    { actorId: ZHOU, username: "周慎" },
-    { actorId: TIE, username: "铁拳·冈" },
-    { actorId: LIN, username: "林萱" },
-  ];
-
-  // Assign each NPC its own pool bot + set its nickname = the NPC's name.
-  const { assignments, overflow } = assignNpcsToBots([...NPCS], pool.length);
-  const botByActor = new Map<string, (typeof pool)[number]>();
-  for (const id of NPCS) {
-    const idx = assignments.get(id);
-    if (idx === undefined) continue;
-    const bot = pool[idx]!;
-    botByActor.set(id, bot);
-    await bot.setNickname(cfg.guildId, NAME[id]!).catch(() => {});
-    step(`   ${NAME[id]} → pool bot ${bot.userId} (昵称已设)`);
-  }
-  if (overflow.length > 0) step(`   ⚠ 溢出(回退webhook): ${overflow.map((a) => NAME[a]).join(", ")}`);
-
-  const substrate = new MultiBotSubstrate({
-    webhook,
-    personas,
-    threadMap: { [scene]: channelId },
-    botFor: (a) => botByActor.get(a),
-    onError: (w, e) => step(`   ⚠ ${w}: ${String(e)}`),
-  });
-
   const cards = new FakeCardStore(sheets);
   // DICE=bcdice → the production BCDice judge (ADR-0013, same path as `npm start`);
   // rolls become non-reproducible. Default stays seeded NativeDice so the playbook
@@ -178,37 +130,27 @@ async function main(): Promise<void> {
     bespokeRules: {},
   };
 
-  // Real NPC LLM agents, each behind the engine seam; roll-aware so that when the
-  // DM has called a check on them, their slot RESOLVES it (instead of prose).
-  const hold: { ref?: Referee } = {};
-  const makeNpc = (soul: Soul): NpcPort => {
-    const persona = `${buildNpcPersona(soul)}\n（这是 1923 年上海的克苏鲁式调查团，你与另外两名调查员并肩查案。回应简短，一两句即可。）`;
-    const gen = withTimeoutRetry((p) => npcGenerate(p), { timeoutMs: 60_000, maxAttempts: 2, totalBudgetMs: 130_000 }, realClock);
-    const base = new AgentNpc({ persona, generate: gen });
-    return {
-      takeTurn: async (ctx) => {
-        if (hold.ref?.pendingCheckFor(ctx.actorId) !== undefined) return { kind: "roll" };
-        return base.takeTurn(ctx);
-      },
-    };
-  };
-  const ports: Record<string, NpcPort> = {
-    [ZHOU]: makeNpc(souls[ZHOU]!),
-    [TIE]: makeNpc(souls[TIE]!),
-    [LIN]: makeNpc(souls[LIN]!),
-  };
-
-  const ref = new Referee({
-    aidmId: AIDM,
-    substrate,
+  // arch-C1: the table comes from the PRODUCTION assembleTable recipe — per-NPC
+  // roll-aware agents, bot-pool substrate + nicknames, Referee, #57 mentions.
+  // This script keeps only its own concerns: the scripted DM playbook + dice mode.
+  const table = assembleTable({
+    scene,
+    channelId,
+    campaign: campaignId("xishulu"),
+    rosterStore: { get: () => NPCS.map((id) => ({ actorId: id, kind: "ai" as const, approved: true })), set() {}, markApproved() {} },
+    soulStore: { load: (id) => souls[id], save() {} },
+    humanSeat: "none",
+    webhook,
+    botPool: pool,
+    guildId: cfg.guildId,
     dice,
     cards,
-    npcFor: (a) => ports[a],
-    presentActors: [...NPCS],
-    mentionsOf,
-    campaign: bible,
+    bible,
+    npcTimeout: { timeoutMs: 60_000, maxAttempts: 2, totalBudgetMs: 130_000 },
+    onError: (w, e) => step(`   ⚠ ${w}: ${String(e)}`),
   });
-  hold.ref = ref;
+  const ref = table.referee;
+  step(`🟢 牌桌装配完成（生产 assembleTable 路径）：${table.teammates.map((t) => t.personaCore.name).join("、")}\n`);
 
   // ── DM playbook helpers (every step logged → the proof trace) ──────────────
   const narrate = async (text: string): Promise<void> => {
