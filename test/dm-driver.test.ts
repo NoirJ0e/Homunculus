@@ -105,4 +105,46 @@ describe("#20 buildDmSystemPrompt — pure prompt assembly", () => {
     expect(prompt).toContain("软引力");
     expect(prompt).toContain("玩家永远看不到刻度");
   });
+
+  test("#58: cast 显示名进 roster，并明令点名用真名、不从 actorId 猜名字", () => {
+    const prompt = buildDmSystemPrompt({
+      brief: "x",
+      sceneId: "s",
+      cast: [
+        { actorId: "npc-linxuan", role: "npc", name: "林萱" },
+        { actorId: "player-1", role: "human" },
+      ],
+    });
+    // The display name appears alongside the actorId (live bug: DM 把「林萱」猜成「林轩」).
+    expect(prompt).toContain("林萱");
+    expect(prompt).toContain("npc-linxuan");
+    // A nameless member still renders by actorId (backwards compatible).
+    expect(prompt).toContain("player-1");
+    // The rule itself: use the real name, never guess from the actorId's pinyin.
+    expect(prompt).toContain("真名");
+    expect(prompt).toContain("不要从 actorId");
+  });
+
+  test("#58: CoC7 难度语义——roll-under 无 DC，只有 hard/extreme 两档收紧", () => {
+    const prompt = buildDmSystemPrompt({ brief: "x", sceneId: "s", cast: [], system: "coc7" });
+    expect(prompt).toContain("hard");
+    expect(prompt).toContain("extreme");
+    expect(prompt).toContain("没有 DC");
+    // The D&D5e difficulty guidance must NOT leak into a CoC7 table.
+    expect(prompt).not.toContain("mode 传 \"attack\"");
+  });
+
+  test("#58: D&D5e 难度语义——DC/AC 数字目标 + 攻击走 mode attack", () => {
+    const prompt = buildDmSystemPrompt({ brief: "x", sceneId: "s", cast: [], system: "dnd5e" });
+    expect(prompt).toContain("DC");
+    expect(prompt).toContain("AC");
+    expect(prompt).toContain("mode 传 \"attack\"");
+    expect(prompt).not.toContain("没有 DC");
+  });
+
+  test("#58: call_check 时序预告——同轮已行动者不可再点，下一轮开头收骰", () => {
+    const prompt = buildDmSystemPrompt({ brief: "x", sceneId: "s", cast: [] });
+    expect(prompt).toContain("下一轮开头");
+    expect(prompt).toContain("这不是错误");
+  });
 });

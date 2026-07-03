@@ -353,9 +353,16 @@ export function makeRunners(deps: RunnerDeps): Runners {
       brief: `${campaignBrief}\n\n${opening}`,
       sceneId: scene,
       cast: [
-        ...cast.teammates.map((t) => ({ actorId: t.id, role: "npc" as const })),
+        // #58 — display names ride along so the DM never invents one from the id.
+        ...cast.teammates.map((t) => ({
+          actorId: t.id,
+          role: "npc" as const,
+          name: t.personaCore.name,
+        })),
         { actorId: human, role: "human" as const },
       ],
+      // #58 — per-system difficulty phrasing (CoC7 bands vs D&D5e DC/AC).
+      ...(bible?.system && { system: bible.system }),
     });
 
     // Feed the trigger message so the first await_actors has the human's turn.

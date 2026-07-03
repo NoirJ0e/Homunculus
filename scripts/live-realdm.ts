@@ -175,7 +175,8 @@ async function main(): Promise<void> {
   const systemPrompt = buildDmSystemPrompt({
     brief: `${bible.secretTruth}\n【开局】${bible.milestones[0]!.enterCue}\n这桌有 3 名 AI 调查员、没有真人。逐个点名推进这桩调查，循里程碑走，把每个人都点到。`,
     sceneId: channelId,
-    cast: NPCS.map((id) => ({ actorId: id, role: "npc" as const })),
+    cast: NPCS.map((id) => ({ actorId: id, role: "npc" as const, name: NAME[id]! })),
+    system: bible.system,
   });
 
   step(`\n===== 启动真 DM query =====`);
