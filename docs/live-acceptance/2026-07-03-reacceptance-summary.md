@@ -33,13 +33,26 @@ BCDice 真路径此前从未进过 live）。
 - 全链路 ✅：5 里程碑推进至全剧终、#57 协商注入 3 次生效、3 池 bot 真身份发帖、
   频道实收 41 条、零错误。
 
+## 跑 3：live-combat.ts（D&D5e 战斗轮，#46 无人值守部分）
+
+原始记录（本目录）：[2026-07-03-live-combat-dnd5e.md](2026-07-03-live-combat-dnd5e.md)。
+
+- **战斗 BCDice 真结算 ✅（live 首跑）**：`mode:"attack"` → BCDice DungeonsAndDragons5
+  `AT±mod>=AC` 此前从未进过 live。三轮完整点名：AR 察觉 `AR+4>=12 → 8 失败`（感知
+  +2 + 熟练 +2 合成正确）、AT 攻击 `AT+5>=13 → 13 压线命中` 与 `AT+5>=15 → 9 未中`
+  （力量 +3 + 熟练 +2 合成正确）——攻击/检定两种命令、成败两侧全覆盖，结果均反馈
+  进叙事并落 Discord（16 条）。
+- 引擎环完整：`call_check(mode:"attack")` 登记 → NPC 下轮 `roll` → `resolveRoll`
+  合成 RollRequest → BCDice 判定 → `nominate` 返回值携带 detail 给 DM。
+
 ## 判定与遗留
 
 - PRD #50（#51–#57）编排验收：**两次独立复现通过**（06-09 + 07-03），可关闭。
 - 消息留存（trace 调优基建）：**验收通过**——`npm start` 主进程同款路径
   （`data/traces/<campaign>/<runId>.{jsonl,md}`，`TRACE=0` 关闭）。
-- #46 遗留：BCDice 检定 live ✅（本次补上）；**战斗轮 live 仍未覆盖**——#46 关闭前
-  需一次含战斗的坐团。
+- #46 遗留：BCDice 检定 live ✅ + 战斗轮 BCDice live ✅（跑 2/跑 3 补上）；剩余 AC
+  均为不可约 HITL（真人开卡坐团、`/check` 亲手投、拖延触发时钟/软引力、pause→
+  重启 resume），需真人一坐到尾后方可关闭。
 - 脚本改动（本次 commit）：`live-realdm.ts` 固定走 BcdiceDice + FileTraceSink +
   NPC 真名 tap；`live-game.ts` 加 `DICE=bcdice` 开关（默认仍 NativeDice 种子随机，
   保 playbook 可复现）。
