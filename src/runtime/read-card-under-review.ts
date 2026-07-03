@@ -7,16 +7,14 @@ import { genesisFullAuto } from "../genesis/soul-genesis.js";
 /**
  * read-card-under-review.ts — the `readCard` seam for the `/verify-card` handler
  * (ADR-0012; #36 wiring). The verifier core needs a COMPLETE
- * {@link VerifiableCard} (soul + sheet) to adjudicate, but the open-card session
- * holds them as OPTIONAL pending drafts (and v1's conversational assistant does
- * not yet populate them — flagged留白 in card-creation.ts / ADR-0012 Phase 5).
+ * {@link VerifiableCard} (soul + sheet) to adjudicate; the open-card session
+ * holds them as OPTIONAL pending drafts, populated by the assistant's
+ * `hold_card` tool (arch-C2 — the talked-out persona lands as drafts).
  *
- * So this bridges the gap deterministically: prefer the session's held drafts;
- * for any missing half fall back to a genesis-derived default for the actor (the
- * same deterministic seed expansion the AI-seat path uses) + the v1 baseline
- * sheet. That keeps the human verify loop RUNNABLE end to end today, and the
- * moment the open-card assistant starts holding real drafts (downstream) those
- * drafts win automatically. Pure + headless-testable (genesis is deterministic).
+ * Held drafts win; the genesis-derived default + baseline sheet remain the
+ * EXCEPTION branch — a player who `/verify-card`s before settling a concept
+ * (or a session lost to restart) still gets a complete, adjudicable card.
+ * Pure + headless-testable (genesis is deterministic).
  */
 
 export interface ReadCardDeps {

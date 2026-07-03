@@ -168,9 +168,16 @@ const verifierLlm = createCardVerifierLlm();
 const aiReviser = createAiReviser();
 
 // The open-card assistant seam the `/create-character-card` handler injects —
-// each call spins up a streaming-input query() bound to one thread.
+// each call spins up a streaming-input query() bound to one thread. The
+// assistant's `hold_card` tool lands drafts on the thread's session (arch-C2);
+// the campaign's rule system rides along so the baseline sheet matches.
 const startCardAssistant = makeCardCreationAssistant({
   discordClient,
+  resolveDraftTarget: (threadId) => {
+    const session = cardSessions.get(threadId);
+    if (!session) return undefined;
+    return { session, system: campaignStore.get(session.campaignId)?.system ?? "coc7" };
+  },
   onError: (where, error) => console.error(`[card-assistant-error] ${where}`, error),
 });
 

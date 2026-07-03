@@ -17,6 +17,7 @@ import {
 } from "../adapters/agent-sdk/timeout-npc.js";
 import { buildDmSystemPrompt } from "../adapters/agent-sdk/dm-prompt.js";
 import { buildConciergePrompt } from "../adapters/agent-sdk/concierge-prompt.js";
+import { createCardMcpServer, type CardDraftTarget } from "../adapters/agent-sdk/card-mcp.js";
 import { createDiscordAdminMcpServer } from "../adapters/agent-sdk/discord-admin-mcp.js";
 import { createGenesisMcpServer } from "../adapters/agent-sdk/genesis-mcp.js";
 import type { CampaignStore } from "../ports/campaign-store.js";
@@ -450,22 +451,32 @@ export function makeRunners(deps: RunnerDeps): Runners {
   return { runConciergeQuery, runAidmQuery, runCardCreationQuery, deleteSession };
 }
 
-/** The open-card 开卡向导 system prompt (ADR-0012 Phase 5). */
+/** The open-card 开卡向导 system prompt (ADR-0012 Phase 5; hold_card 管线 arch-C2). */
 const CARD_ASSISTANT_PROMPT =
   "你是开卡向导：用轻松对话帮玩家把一个角色概念落成一张卡——名字、性格、目标、背景。" +
-  "不要主持游戏、不要叙事。聊清楚后复述确认即可；玩家满意了提示他用 `/verify-card` 交审。";
+  "不要主持游戏、不要叙事。聊清楚后复述确认；玩家认可这一版人设时，调用 `hold_card` 工具" +
+  "把它落成草稿（名字/性格/目标），然后提示他用 `/verify-card` 交审。" +
+  "玩家改主意就继续聊，聊定再调一次 `hold_card` 覆盖旧草稿。";
 
 /**
  * Build the `startAssistant` seam the `/create-character-card` handler injects
  * (#34). Each call spins up a streaming-input `query()` bound to ONE open-card
  * thread, posts the assistant's replies back as 开卡向导, and returns the thread's
- * `deliver` (push input). HITL GLUE — type-checked, not unit-tested (makes the
- * real `query()` call), exactly like the runners above. The headless seams it
- * composes (StreamInputChannel, postCardAssistantText, holdInitialDrafts) ARE
- * unit-tested.
+ * `deliver` (push input). The assistant carries the `hold_card` in-process MCP
+ * tool (arch-C2): what the player settles on lands as PENDING drafts on the
+ * thread's session — resolved lazily via `resolveDraftTarget`, because the
+ * session is bound to the thread AFTER this factory runs — so `/verify-card`
+ * finally adjudicates the talked-out card, not the genesis fallback.
+ * HITL GLUE — type-checked, not unit-tested (makes the real `query()` call),
+ * exactly like the runners above. The headless seams it composes
+ * (StreamInputChannel, postCardAssistantText, cardTools → holdInitialDrafts)
+ * ARE unit-tested.
  */
 export function makeCardCreationAssistant(deps: {
   readonly discordClient: DiscordClient;
+  /** The thread's draft landing target (session + campaign rule system); see
+   *  {@link CardDraftTarget}. Undefined → the hold tool reports "no session". */
+  readonly resolveDraftTarget: (threadId: string) => CardDraftTarget | undefined;
   readonly onError?: (where: string, error: unknown) => void;
 }): (threadId: string) => (text: string) => void {
   const onError = deps.onError ?? (() => {});
@@ -473,7 +484,12 @@ export function makeCardCreationAssistant(deps: {
     const channel = new StreamInputChannel();
     const stream = query({
       prompt: channel.iterable,
-      options: { systemPrompt: CARD_ASSISTANT_PROMPT, permissionMode: "bypassPermissions" },
+      options: {
+        systemPrompt: CARD_ASSISTANT_PROMPT,
+        mcpServers: { card: createCardMcpServer(() => deps.resolveDraftTarget(threadId)) },
+        allowedTools: ["mcp__card__hold_card"],
+        permissionMode: "bypassPermissions",
+      },
     });
     void postCardAssistantText(deps.discordClient, threadId, stream).catch((e) =>
       onError(`cardcreation-assistant:${threadId}`, e),
