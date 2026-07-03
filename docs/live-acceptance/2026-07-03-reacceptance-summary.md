@@ -56,5 +56,9 @@ BCDice 真路径此前从未进过 live）。
 - 脚本改动（本次 commit）：`live-realdm.ts` 固定走 BcdiceDice + FileTraceSink +
   NPC 真名 tap；`live-game.ts` 加 `DICE=bcdice` 开关（默认仍 NativeDice 种子随机，
   保 playbook 可复现）。
-- DM prompt 待调优三件套（06-09 存档已记，本次维持）：cast 缺显示名（林萱→林轩）、
-  CoC 团 D&D 式 DC 措辞、call_check 同轮不可再点名宜在 kickoff 预告。
+- DM prompt 三件套：**已修并 live 验证**（#58 速修部分，commit ceccc3b）。验证跑
+  （[2026-07-03-realdm-after-58-fix.md](2026-07-03-realdm-after-58-fix.md)）：
+  「林轩」0 次/「林萱」14 次；全程零「DC」措辞且 call_check 正确省略普通难度；
+  「先喊后点」时序被 DM 主动规划、零点名被拒；附带本跑 DM 主动发起检定并经
+  BCDice 结算（`CC<=70→54 成功`，对照修复前一跑为 0 次——单点不定论，发起率
+  仍归 #58 eval 台）。
