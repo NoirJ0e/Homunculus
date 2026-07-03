@@ -26,6 +26,8 @@ import { npcGenerate } from "../src/adapters/agent-sdk/sdk-runner.js";
 import { withTimeoutRetry, realClock } from "../src/adapters/agent-sdk/timeout-npc.js";
 import { assignNpcsToBots } from "../src/runtime/npc-bot-assignment.js";
 import { NativeDice } from "../src/adapters/dice/native-dice.js";
+import { BcdiceDice } from "../src/adapters/dice/bcdice-dice.js";
+import { LibBcdiceEvaluator } from "../src/adapters/dice/bcdice-evaluator.js";
 import { FakeCardStore } from "../src/adapters/memory/fake-card-store.js";
 import { createSoul, type Soul } from "../src/domain/soul.js";
 import { buildNpcPersona } from "../src/runtime/aidm-cast.js";
@@ -151,7 +153,13 @@ async function main(): Promise<void> {
   });
 
   const cards = new FakeCardStore(sheets);
-  const dice = new NativeDice(cards, mulberry32(SEED));
+  // DICE=bcdice → the production BCDice judge (ADR-0013, same path as `npm start`);
+  // rolls become non-reproducible. Default stays seeded NativeDice so the playbook
+  // run is replayable.
+  const dice =
+    process.env.DICE === "bcdice"
+      ? new BcdiceDice(cards, new LibBcdiceEvaluator())
+      : new NativeDice(cards, mulberry32(SEED));
 
   const bible: CampaignBible = {
     secretTruth: "那本无名黑皮书是一本邪典；偷书人是曹德远昔日的学徒，已被书中之物侵蚀。",

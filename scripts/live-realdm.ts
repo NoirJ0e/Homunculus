@@ -4,7 +4,11 @@
  * `dmQueryStream` LLM (calls narrate/nominate/call_check MCP tools), not a script.
  * This isolates the original live bug ("完全没消息"): does the real DM agent, given
  * the #52 nominate tool + prompt, actually narrate + nominate + drive the table?
- * Every DM message (thinking / prose / tool-use / tool-result) is traced.
+ * Every DM + NPC message (thinking / prose / tool-use / tool-result) is traced —
+ * both to the human step-trace AND through the production FileTraceSink
+ * (data/traces/realdm-acceptance/<runId>.{jsonl,md}), so a run also exercises the
+ * real persistence path. Dice = BCDice (ADR-0013 production path), so the check
+ * loop is judged by the same mechanical engine as `npm start`.
  *
  *   node --env-file=.env --import tsx scripts/live-realdm.ts
  */
@@ -23,7 +27,9 @@ import { withTimeoutRetry, realClock } from "../src/adapters/agent-sdk/timeout-n
 import { buildDmSystemPrompt } from "../src/adapters/agent-sdk/dm-prompt.js";
 import { messageToTraceEvents } from "../src/adapters/agent-sdk/trace-tap.js";
 import { assignNpcsToBots } from "../src/runtime/npc-bot-assignment.js";
-import { NativeDice } from "../src/adapters/dice/native-dice.js";
+import { BcdiceDice } from "../src/adapters/dice/bcdice-dice.js";
+import { LibBcdiceEvaluator } from "../src/adapters/dice/bcdice-evaluator.js";
+import { FileTraceSink } from "../src/adapters/trace/file-trace-sink.js";
 import { FakeCardStore } from "../src/adapters/memory/fake-card-store.js";
 import { createSoul, type Soul } from "../src/domain/soul.js";
 import { buildNpcPersona } from "../src/runtime/aidm-cast.js";
@@ -32,16 +38,6 @@ import type { ActorPersona } from "../src/adapters/discord/scene-threads.js";
 import type { CharacterSheet } from "../src/ports/card-store.js";
 import type { CampaignBible } from "../src/domain/campaign.js";
 import type { TraceEvent } from "../src/ports/trace-sink.js";
-
-function mulberry32(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 const AIDM = A("aidm");
 const ZHOU = A("npc-zhoushen");
@@ -71,6 +67,10 @@ const stamp = `${Date.now()}`;
 const runId = `realdm-${stamp}`;
 const outDir = join("data", "headless");
 mkdirSync(outDir, { recursive: true });
+// Production persistence path — the same FileTraceSink `npm start` wires, so this
+// run doubles as an acceptance of the trace-留存 loop (JSONL for the eval harness,
+// md for eyeballs).
+const sink = new FileTraceSink("data", "realdm-acceptance", runId);
 const mdPath = join(outDir, `${runId}.md`);
 const trunc = (s: string, n = 400) => (s.length > n ? `${s.slice(0, n)}…` : s);
 function step(line: string): void {
@@ -127,7 +127,7 @@ async function main(): Promise<void> {
   });
 
   const cards = new FakeCardStore(sheets);
-  const dice = new NativeDice(cards, mulberry32(7));
+  const dice = new BcdiceDice(cards, new LibBcdiceEvaluator());
 
   const bible: CampaignBible = {
     secretTruth: "黑皮书是邪典；偷书人是曹德远昔日学徒，已被书侵蚀。",
@@ -147,7 +147,11 @@ async function main(): Promise<void> {
   const hold: { ref?: Referee } = {};
   const makeNpc = (soul: Soul): NpcPort => {
     const persona = `${buildNpcPersona(soul)}\n（1923上海克系调查团，与另两名调查员并肩。回应简短一两句。）`;
-    const gen = withTimeoutRetry((p) => npcGenerate(p), { timeoutMs: 60_000, maxAttempts: 2, totalBudgetMs: 130_000 }, realClock);
+    const label = `npc:${soul.personaCore.name}`;
+    const tap = (message: unknown): void => {
+      for (const ev of messageToTraceEvents(label, runId, message)) sink.record(ev);
+    };
+    const gen = withTimeoutRetry((p) => npcGenerate(p, tap), { timeoutMs: 60_000, maxAttempts: 2, totalBudgetMs: 130_000 }, realClock);
     const base = new AgentNpc({ persona, generate: gen });
     return {
       takeTurn: async (ctx) =>
@@ -181,6 +185,7 @@ async function main(): Promise<void> {
     for await (const msg of dmQueryStream(ref, systemPrompt)) {
       msgs += 1;
       for (const ev of messageToTraceEvents("aidm", runId, msg)) {
+        sink.record(ev);
         const r = renderEv(ev);
         if (r) step(r);
       }
