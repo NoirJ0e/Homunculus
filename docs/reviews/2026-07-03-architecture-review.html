@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>Architecture review — Homunculus v2</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+  mermaid.initialize({ startOnLoad: true, theme: "neutral", securityLevel: "loose" });
+</script>
+<style>
+  .seam { border-style: dashed; }
+  .deep-box { background: linear-gradient(135deg, #0f172a, #1e293b); }
+  .step { font-size: 10px; line-height: 1.3; }
+  pre.mermaid { display: flex; justify-content: center; }
+</style>
+</head>
+<body class="bg-stone-50 text-slate-900 font-sans">
+<main class="max-w-5xl mx-auto px-6 py-12 space-y-14">
+
+  <!-- ============ Header ============ -->
+  <header class="space-y-3">
+    <h1 class="font-serif text-3xl font-bold">Architecture review — Homunculus <span class="text-indigo-700">v2</span></h1>
+    <p class="text-sm text-slate-500">2026-07-03 · v2 分支 · src ≈ 9.1k 行 · 领域语言取自 CONTEXT.md，架构词汇取自 LANGUAGE.md（module / interface / seam / deep / shallow / adapter / leverage / locality）</p>
+    <div class="flex flex-wrap gap-4 text-xs text-slate-600 border border-slate-200 rounded-lg bg-white px-4 py-3">
+      <span class="flex items-center gap-1.5"><span class="inline-block w-4 h-3 border border-slate-500 bg-white"></span> module</span>
+      <span class="flex items-center gap-1.5"><span class="inline-block w-5 border-t-2 border-dashed border-slate-500"></span> seam</span>
+      <span class="flex items-center gap-1.5"><span class="inline-block w-4 h-3 deep-box rounded-sm"></span> deep module</span>
+      <span class="flex items-center gap-1.5"><span class="inline-block w-5 border-t-2 border-red-600"></span> 泄漏 / 断路</span>
+      <span class="flex items-center gap-1.5"><span class="inline-block w-4 h-3 bg-slate-200 border border-slate-300"></span> 死代码 / 悬空</span>
+      <span class="flex items-center gap-1.5"><span class="inline-block px-1 rounded bg-emerald-100 text-emerald-800 font-semibold">Strong</span><span class="inline-block px-1 rounded bg-amber-100 text-amber-800 font-semibold">Worth exploring</span><span class="inline-block px-1 rounded bg-slate-200 text-slate-700 font-semibold">Speculative</span></span>
+    </div>
+  </header>
+
+  <section id="candidates" class="space-y-12">
+
+  <!-- ============ Candidate 1 ============ -->
+  <article id="c1" class="bg-white border border-slate-200 rounded-xl p-6 space-y-4 shadow-sm">
+    <div class="flex items-start justify-between gap-4">
+      <h2 class="font-serif text-2xl font-bold">1 · 把「开一张牌桌」收进一个 deep module</h2>
+      <div class="flex gap-2 shrink-0">
+        <span class="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-xs font-semibold">Strong</span>
+        <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-xs">in-process</span>
+      </div>
+    </div>
+    <p class="font-mono text-sm text-slate-600">src/runtime/runners.ts:212–374 · src/main.ts:128–151 · scripts/live-game.ts (347行) · scripts/live-realdm.ts (212行)</p>
+
+    <!-- before/after -->
+    <div class="grid grid-cols-2 gap-4">
+      <div class="rounded-lg border border-slate-200 p-3">
+        <p class="text-xs uppercase tracking-wider text-slate-400 mb-2">Before — 同一配方抄三份</p>
+        <div class="grid grid-cols-3 gap-2">
+          <div class="border border-slate-400 rounded p-1.5 space-y-1">
+            <p class="step font-mono font-bold">runAidmQuery<br/><span class="text-slate-400">runners.ts · GLUE 不单测</span></p>
+            <div class="step bg-stone-100 rounded px-1">bot池分配</div>
+            <div class="step bg-stone-100 rounded px-1">substrate 选择</div>
+            <div class="step bg-stone-100 rounded px-1">cast 装配</div>
+            <div class="step bg-stone-100 rounded px-1">Referee 构造</div>
+            <div class="step bg-stone-100 rounded px-1">check 绑定</div>
+            <div class="step bg-stone-100 rounded px-1">prompt 拼装</div>
+            <div class="step bg-stone-100 rounded px-1">driver 拉起</div>
+          </div>
+          <div class="border border-slate-400 rounded p-1.5 space-y-1">
+            <p class="step font-mono font-bold">live-game.ts<br/><span class="text-red-600">改版拷贝</span></p>
+            <div class="step bg-stone-100 rounded px-1">bot池分配</div>
+            <div class="step bg-stone-100 rounded px-1">substrate 选择</div>
+            <div class="step bg-red-50 text-red-700 rounded px-1">cast（假NPC）</div>
+            <div class="step bg-stone-100 rounded px-1">Referee 构造</div>
+            <div class="step bg-red-50 text-red-700 rounded px-1">固定骰</div>
+            <div class="step bg-stone-100 rounded px-1">prompt 拼装</div>
+            <div class="step bg-stone-100 rounded px-1">手动轮驱动</div>
+          </div>
+          <div class="border border-slate-400 rounded p-1.5 space-y-1">
+            <p class="step font-mono font-bold">live-realdm.ts<br/><span class="text-red-600">改版拷贝</span></p>
+            <div class="step bg-stone-100 rounded px-1">bot池分配</div>
+            <div class="step bg-stone-100 rounded px-1">substrate 选择</div>
+            <div class="step bg-stone-100 rounded px-1">cast 装配</div>
+            <div class="step bg-stone-100 rounded px-1">Referee 构造</div>
+            <div class="step bg-red-50 text-red-700 rounded px-1">诊断 tap</div>
+            <div class="step bg-stone-100 rounded px-1">prompt 拼装</div>
+            <div class="step bg-stone-100 rounded px-1">真DM 拉起</div>
+          </div>
+        </div>
+        <p class="step text-red-600 mt-2">接线 bug（#50–#57 那一类）要跨 3 份代码修；装配全程无测试进入点</p>
+      </div>
+      <div class="rounded-lg border border-slate-200 p-3">
+        <p class="text-xs uppercase tracking-wider text-slate-400 mb-2">After — 一个 deep module，三个薄 caller</p>
+        <div class="flex justify-around mb-1">
+          <div class="step border border-slate-300 rounded px-2 py-1">runners<br/><span class="text-slate-400">query() 胶水</span></div>
+          <div class="step border border-slate-300 rounded px-2 py-1">live-game</div>
+          <div class="step border border-slate-300 rounded px-2 py-1">live-realdm</div>
+        </div>
+        <div class="text-center text-slate-400 text-xs">▼ ▼ ▼</div>
+        <div class="deep-box rounded-lg p-3 text-white">
+          <p class="text-xs font-mono font-bold">牌桌装配 assembleTable(stores, pool, config)</p>
+          <p class="step text-slate-300">→ { referee, substrate, inbox, teardown }</p>
+          <div class="grid grid-cols-4 gap-1 mt-2 opacity-40">
+            <div class="step bg-slate-700 rounded px-1">bot池分配</div>
+            <div class="step bg-slate-700 rounded px-1">substrate 选择</div>
+            <div class="step bg-slate-700 rounded px-1">cast 装配</div>
+            <div class="step bg-slate-700 rounded px-1">Referee 构造</div>
+            <div class="step bg-slate-700 rounded px-1">check 绑定</div>
+            <div class="step bg-slate-700 rounded px-1">prompt 拼装</div>
+            <div class="step bg-slate-700 rounded px-1">trace 装配</div>
+            <div class="step bg-slate-700 rounded px-1">超时装饰</div>
+          </div>
+        </div>
+        <p class="step text-emerald-700 mt-2">✓ 装配是确定性组合（不含 query()），假 port 即可单测；HITL 胶水缩到真正不可约的一小片</p>
+      </div>
+    </div>
+
+    <p class="text-sm"><strong>Problem</strong> — 「开一张牌桌」的配方内联在 <code class="font-mono text-xs">runAidmQuery</code> 一个 476 行文件的闭包里（文件头自称 GLUE、不单测），又在两个 live 脚本各抄一份改版：<code class="font-mono text-xs">assignNpcsToBots / MultiBotSubstrate / new Referee</code> 三处出现（grep 证实）。deletion test：删掉内联逻辑，复杂度在 3 个 caller 原样重现——这块知识在挣一个 module 的位置，却没有得到它。</p>
+    <p class="text-sm"><strong>Solution</strong> — 提取「牌桌装配」module：吃 stores + bot 池 + 配置，吐装配好的 referee/substrate/inbox/teardown；runners 与脚本都变成它的薄 caller，只保留各自的 query() / 假驱动差异。</p>
+    <ul class="text-sm space-y-0.5 list-disc list-inside text-slate-700">
+      <li>locality：接线 bug 一处修，三处生效</li>
+      <li>leverage：一个 interface，main + 两脚本共用</li>
+      <li>装配从 GLUE 变成可测 implementation</li>
+      <li>脚本停止漂移，诊断跑的就是生产接线</li>
+    </ul>
+    <p class="text-xs text-slate-500 border-l-2 border-slate-200 pl-3">注：ADR-0010/0011 只拍了运行时拓扑（dispatcher + 按需 query），没拍装配的落点——本候选不动任何 ADR 决策，只动实现形状。「GLUE 不单测」的文件头立场会被部分推翻：其中大半其实是确定性组装。</p>
+  </article>
+
+  <!-- ============ Candidate 2 ============ -->
+  <article id="c2" class="bg-white border border-slate-200 rounded-xl p-6 space-y-4 shadow-sm">
+    <div class="flex items-start justify-between gap-4">
+      <h2 class="font-serif text-2xl font-bold">2 · 开卡草稿的断路：聊出的人设到不了审卡官面前</h2>
+      <div class="flex gap-2 shrink-0">
+        <span class="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-xs font-semibold">Strong</span>
+        <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-xs">ports &amp; adapters</span>
+      </div>
+    </div>
+    <p class="font-mono text-sm text-slate-600">src/runtime/card-creation.ts:247–254 · src/runtime/read-card-under-review.ts:37–42 · src/runtime/runners.ts:414–476 · src/adapters/discord/verify-card-handler.ts</p>
+
+    <div class="grid grid-cols-2 gap-4">
+      <div class="rounded-lg border border-slate-200 p-3">
+        <p class="text-xs uppercase tracking-wider text-slate-400 mb-2">Before — 管线中段无人接线</p>
+        <pre class="mermaid">
+flowchart TB
+  P["玩家"] --> A["开卡向导（纯对话 query）"]
+  A -. "聊定的人设：无处落" .-> DROP["∅ 丢弃"]
+  H["holdInitialDrafts（纯函数，已单测）"] --> S["session.drafts"]
+  T["test ✓"] -.-> H
+  V["/verify-card"] --> R["readCardUnderReview"]
+  R -->|"drafts 恒空"| G["genesis 兜底卡"]
+  S -.->|"生产 0 调用"| R
+  classDef leak stroke:#dc2626,stroke-width:2px,color:#dc2626;
+  classDef dead fill:#e7e5e4,stroke:#a8a29e,color:#57534e;
+  class DROP,G leak
+  class H,S,T dead
+        </pre>
+      </div>
+      <div class="rounded-lg border border-slate-200 p-3">
+        <p class="text-xs uppercase tracking-wider text-slate-400 mb-2">After — 向导拿到 hold 工具，草稿真的流动</p>
+        <pre class="mermaid">
+flowchart TB
+  P["玩家"] --> A["开卡向导"]
+  A -->|"hold_card 工具（进程内 MCP）"| H["holdInitialDrafts"]
+  H --> S["session.drafts"]
+  V["/verify-card"] --> R["readCardUnderReview"]
+  R -->|"读草稿"| S
+  R -.->|"仅例外才兜底"| G["genesis"]
+  classDef deep fill:#0f172a,stroke:#0f172a,color:#f8fafc;
+  class S deep
+        </pre>
+      </div>
+    </div>
+
+    <p class="text-sm"><strong>Problem</strong> — card-creation module 的 interface 承诺一条草稿管线（<code class="font-mono text-xs">holdSoulDraft → drafts → verify 消费</code>），纯函数 <code class="font-mono text-xs">holdInitialDrafts</code> 建成且测试全绿——但生产路径零调用（grep 证实：只有测试在调）。开卡向导只是普通对话 query，玩家聊 30 分钟的人设无处落；<code class="font-mono text-xs">/verify-card</code> 永远在审 genesis 兜底卡。这是「为可测试性抽出纯函数、真 bug 藏在没人调用它」的教科书案例：每个 module 各自绿，组合流程断路，无 locality。</p>
+    <p class="text-sm"><strong>Solution</strong> — 沿用全仓一致的范式（能力 = 进程内工具）：给开卡向导挂一个 hold 草稿的工具，工具 handler 调 <code class="font-mono text-xs">holdInitialDrafts</code>；genesis 兜底降级为真正的例外分支。</p>
+    <ul class="text-sm space-y-0.5 list-disc list-inside text-slate-700">
+      <li>interface 变诚实：drafts 真的会被填</li>
+      <li>端到端可测：假工具调用流直通 verify</li>
+      <li>审卡审的是玩家聊出的卡，不是模板</li>
+    </ul>
+    <div class="text-xs bg-amber-50 border border-amber-200 text-amber-800 rounded px-3 py-2">ADR 关系：read-card-under-review.ts:11 自己标了「v1 留白」——本候选是<b>偿还 ADR-0012 Phase 5 的已挂账债</b>，与 ADR-0009「能力=工具边界」同构，无冲突。它兼具 live bug 性质：现在就影响每一次真实审卡。</div>
+  </article>
+
+  <!-- ============ Candidate 3 ============ -->
+  <article id="c3" class="bg-white border border-slate-200 rounded-xl p-6 space-y-4 shadow-sm">
+    <div class="flex items-start justify-between gap-4">
+      <h2 class="font-serif text-2xl font-bold">3 · 点名回执下沉：DM 该看到什么，让 Referee 说了算</h2>
+      <div class="flex gap-2 shrink-0">
+        <span class="px-2 py-0.5 rounded bg-amber-100 text-amber-800 text-xs font-semibold">Worth exploring</span>
+        <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-xs">in-process</span>
+      </div>
+    </div>
+    <p class="font-mono text-sm text-slate-600">src/adapters/agent-sdk/engine-mcp.ts:36–74 · src/engine/referee.ts:128–146, 397–405, 513–570</p>
+
+    <div class="grid grid-cols-2 gap-4">
+      <div class="rounded-lg border border-slate-200 p-3">
+        <p class="text-xs uppercase tracking-wider text-slate-400 mb-2">Before — interface 几乎和 implementation 一样宽（shallow）</p>
+        <div class="flex gap-3 items-end justify-center h-64">
+          <div class="w-44 flex flex-col">
+            <div class="border-2 border-slate-500 bg-indigo-50 rounded-t p-2 h-32">
+              <p class="step font-bold uppercase tracking-wider">interface（caller 必须懂）</p>
+              <p class="step">· NominateResult 5 变体 union</p>
+              <p class="step">· 另调 pendingIntents()</p>
+              <p class="step text-red-600">· #54 地板靠 adapter 记得追加</p>
+              <p class="step">· remaining 拼装规则</p>
+            </div>
+            <div class="border-2 border-t-0 border-slate-500 rounded-b p-2 h-24 bg-white">
+              <p class="step font-bold uppercase tracking-wider text-slate-400">implementation</p>
+              <p class="step">轮不变量 + 槽阻塞 + 检定合并</p>
+            </div>
+            <p class="step text-center mt-1 font-mono">referee.nominate</p>
+          </div>
+          <div class="w-40 flex flex-col">
+            <div class="border-2 border-red-400 rounded p-2 h-40 bg-red-50">
+              <p class="step font-bold text-red-700">engine-mcp（adapter 层）</p>
+              <p class="step">26 行 switch 拼中文</p>
+              <p class="step">手工算「还剩谁」</p>
+              <p class="step">手工追加 ⚠ intents 警告</p>
+              <p class="step text-red-600 mt-1">← 引擎状态的 DM 视图<br/>活在 seam 外侧，无独立测试</p>
+            </div>
+            <p class="step text-center mt-1 font-mono">nominate 工具</p>
+          </div>
+        </div>
+      </div>
+      <div class="rounded-lg border border-slate-200 p-3">
+        <p class="text-xs uppercase tracking-wider text-slate-400 mb-2">After — 小 interface 藏大行为（deep）</p>
+        <div class="flex gap-3 items-end justify-center h-64">
+          <div class="w-44 flex flex-col">
+            <div class="border-2 border-slate-500 bg-indigo-50 rounded-t p-2 h-12">
+              <p class="step font-bold uppercase tracking-wider">interface</p>
+              <p class="step">nominate → 拍回执（结构化 + DM 摘要）</p>
+            </div>
+            <div class="deep-box rounded-b p-2 h-44 text-white">
+              <p class="step font-bold uppercase tracking-wider text-slate-300">implementation</p>
+              <p class="step text-slate-300">轮不变量 + 槽阻塞 + 检定合并</p>
+              <p class="step text-slate-300">+ remaining 摘要</p>
+              <p class="step text-slate-300">+ #54 地板：intents 必进回执</p>
+              <p class="step text-emerald-300 mt-1">✓ 全部进 referee.test.ts 的测试面</p>
+            </div>
+            <p class="step text-center mt-1 font-mono">referee.nominate</p>
+          </div>
+          <div class="w-40 flex flex-col justify-end">
+            <div class="border-2 border-slate-300 rounded p-2 h-12 bg-white">
+              <p class="step font-bold">engine-mcp</p>
+              <p class="step">1 行转发回执</p>
+            </div>
+            <p class="step text-center mt-1 font-mono">nominate 工具</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <p class="text-sm"><strong>Problem</strong> — DM 每拍必须看到的东西（这一拍的结果、本轮还剩谁、#54 玩家检定硬请求）分裂在 seam 两侧：Referee 返回 5 变体 union，adapter 里 26 行 switch 拼文本、再手工追加 <code class="font-mono text-xs">pendingIntents()</code> 警告。「硬请求不可静默丢弃」这条引擎不变量，此刻靠 adapter 记得追加才成立；下一个 DM 前端（live 脚本、未来 VTT 面板）得把这套拼装再发明一遍。</p>
+    <p class="text-sm"><strong>Solution</strong> — Referee 的 nominate 直接返回完整「拍回执」：结构化字段 + 引擎渲染好的 DM 摘要（intents 地板包含在内），adapter 变成真 pass-through。</p>
+    <ul class="text-sm space-y-0.5 list-disc list-inside text-slate-700">
+      <li>#54 地板进入 engine 的测试面</li>
+      <li>leverage：任何 DM 前端拿同一份回执</li>
+      <li>adapter 缩为一行，泄漏消失</li>
+    </ul>
+  </article>
+
+  <!-- ============ Candidate 4 ============ -->
+  <article id="c4" class="bg-white border border-slate-200 rounded-xl p-6 space-y-4 shadow-sm">
+    <div class="flex items-start justify-between gap-4">
+      <h2 class="font-serif text-2xl font-bold">4 · 灵魂生命周期没有插座：五个 deep 内核悬空</h2>
+      <div class="flex gap-2 shrink-0">
+        <span class="px-2 py-0.5 rounded bg-amber-100 text-amber-800 text-xs font-semibold">Worth exploring</span>
+        <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-xs">ports &amp; adapters</span>
+      </div>
+    </div>
+    <p class="font-mono text-sm text-slate-600">src/engine/memory.ts (61) · reflection.ts (94) · canonicity.ts (64) · world-branch.ts (56) · soft-gravity.ts (47) · referee.ts:648–659 (ctx 无 recall 注入点)</p>
+
+    <div class="grid grid-cols-2 gap-4">
+      <div class="rounded-lg border border-slate-200 p-3">
+        <p class="text-xs uppercase tracking-wider text-slate-400 mb-2">Before — 拍循环无挂点，deep 内核全是孤岛</p>
+        <div class="flex gap-4 h-60">
+          <div class="w-1/2 border-2 border-slate-500 rounded-lg p-2 flex flex-col justify-center">
+            <p class="step font-bold text-center mb-1">拍循环（Referee）</p>
+            <p class="step text-center text-slate-500">nominate → 行动 → 记录 → narrate → …</p>
+            <p class="step text-center text-red-600 mt-2">场景收尾？beat 完成？<br/>——没有这样的生命周期时刻</p>
+          </div>
+          <div class="w-1/2 grid grid-cols-2 gap-1.5 content-center">
+            <div class="bg-slate-200 border border-slate-300 rounded p-1"><p class="step">memory recall/remember <span class="text-emerald-700">test✓</span></p></div>
+            <div class="bg-slate-200 border border-slate-300 rounded p-1"><p class="step">reflection 人格演化 <span class="text-emerald-700">test✓</span></p></div>
+            <div class="bg-slate-200 border border-slate-300 rounded p-1"><p class="step">canonicity fork/merge <span class="text-emerald-700">test✓</span></p></div>
+            <div class="bg-slate-200 border border-slate-300 rounded p-1"><p class="step">world-branch 兵分两路 <span class="text-emerald-700">test✓</span></p></div>
+            <div class="bg-slate-200 border border-slate-300 rounded p-1 col-span-2"><p class="step">soft-gravity 软引力阶梯 <span class="text-emerald-700">test✓</span>（无人计算 stallBeats）</p></div>
+          </div>
+        </div>
+        <p class="step text-red-600 mt-1">生产 caller = 0（grep 证实）；deletion test：删掉它们，复杂度会在<b>未来</b>的 caller 重现——不 shallow，是没插座</p>
+      </div>
+      <div class="rounded-lg border border-slate-200 p-3">
+        <p class="text-xs uppercase tracking-wider text-slate-400 mb-2">After — 先开 seam，再谈逐个接入</p>
+        <div class="border-2 border-slate-500 rounded-lg p-2 h-60 flex flex-col justify-between">
+          <div class="deep-box rounded p-2 text-white">
+            <p class="step font-bold">拍循环 + 灵魂生命周期挂点</p>
+            <p class="step text-slate-300">拉起时：recall → TurnContext</p>
+            <p class="step text-slate-300">场景收尾：remember + reflect pass</p>
+            <p class="step text-slate-300">轮状态：stallBeats 计数 → soft-gravity 台阶给 DM 看</p>
+          </div>
+          <div class="flex gap-1.5">
+            <div class="border seam border-slate-400 rounded p-1 flex-1"><p class="step">memory 插上</p></div>
+            <div class="border seam border-slate-400 rounded p-1 flex-1"><p class="step">reflection 插上</p></div>
+            <div class="border seam border-slate-400 rounded p-1 flex-1"><p class="step">soft-gravity 插上</p></div>
+          </div>
+          <div class="flex gap-1.5">
+            <div class="bg-slate-100 border border-slate-200 rounded p-1 flex-1"><p class="step text-slate-500">canonicity / world-branch：留给 git canonicity 切片，seam 已有名字</p></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <p class="text-sm"><strong>Problem</strong> — 五个 deep、已单测的内核（记忆召回、反思 pass、canonicity、兵分两路、软引力）在 src 里零生产调用。不是它们 shallow——是拍循环没有它们能插的 seam：Referee 的 <code class="font-mono text-xs">ctx()</code> 没有 recall 注入口，没有「场景收尾」的生命周期时刻，没人累计 stallBeats。ADR 把设计写完了，代码在等一个插座。</p>
+    <p class="text-sm"><strong>Solution</strong> — 不是「把所有东西都接上」（那是 roadmap），而是给拍循环开一个具名的灵魂生命周期 seam：拉起时注入召回、收尾时写记忆/跑反思、轮状态里养 stall 计数。接哪个、何时接，逐切片决定。</p>
+    <ul class="text-sm space-y-0.5 list-disc list-inside text-slate-700">
+      <li>记忆/演化从孤岛变可插拔 adapter</li>
+      <li>「recall 即替换点」（ADR-0008）真正成立</li>
+      <li>端到端测试终于有路径可走</li>
+    </ul>
+    <div class="text-xs bg-amber-50 border border-amber-200 text-amber-800 rounded px-3 py-2">ADR 关系：这是落 ADR-0004 / 0007 / 0008 的<b>寄存项</b>，不是新决策。诚实标注：一半是集成欠账，「加深」的部分是生命周期挂点这个 interface 本身。</div>
+  </article>
+
+  <!-- ============ Candidate 5 ============ -->
+  <article id="c5" class="bg-white border border-slate-200 rounded-xl p-6 space-y-4 shadow-sm">
+    <div class="flex items-start justify-between gap-4">
+      <h2 class="font-serif text-2xl font-bold">5 · 真人收件箱 seam 上挂着两具尸体</h2>
+      <div class="flex gap-2 shrink-0">
+        <span class="px-2 py-0.5 rounded bg-amber-100 text-amber-800 text-xs font-semibold">Worth exploring</span>
+        <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-xs">ports &amp; adapters</span>
+      </div>
+    </div>
+    <p class="font-mono text-sm text-slate-600">src/adapters/discord/discord-inbox.ts (186行, 死) · gateway-inbox.ts (83行, 死) · discord-substrate.ts:48 · create-real-discord.ts:57（反向借死模块的类型）</p>
+
+    <div class="grid grid-cols-2 gap-4">
+      <div class="rounded-lg border border-slate-200 p-3">
+        <p class="text-xs uppercase tracking-wider text-slate-400 mb-2">Before — 一活二死，活模块还向死模块借类型</p>
+        <pre class="mermaid">
+flowchart TB
+  SEAM["HumanInboxPort（seam）"]
+  PUSH["PushInbox（生产，dispatcher 推送）"] --- SEAM
+  DI["DiscordInbox REST-poll · 186行"] -.- SEAM
+  GI["GatewayInbox · 83行"] -.- SEAM
+  FAKE["fake-human-inbox（测试）"] --- SEAM
+  SUB["discord-substrate / create-real-discord"] -->|"import type InboundMessage"| DI
+  classDef dead fill:#e7e5e4,stroke:#a8a29e,color:#57534e;
+  classDef leak stroke:#dc2626,stroke-width:2px;
+  class DI,GI dead
+  class SUB leak
+        </pre>
+      </div>
+      <div class="rounded-lg border border-slate-200 p-3">
+        <p class="text-xs uppercase tracking-wider text-slate-400 mb-2">After — 两个 adapter 撑住真 seam，类型归位</p>
+        <pre class="mermaid">
+flowchart TB
+  SEAM["HumanInboxPort（seam）"]
+  PUSH["PushInbox（生产）"] --- SEAM
+  FAKE["fake-human-inbox（测试）"] --- SEAM
+  SUB["discord-substrate"] -->|"InboundMessage 挪回 message-events"| TYPES["message-events.ts"]
+  DEL["discord-inbox / gateway-inbox：删除（269行 + 各自测试）"]
+  classDef dead fill:#e7e5e4,stroke:#a8a29e,color:#57534e,stroke-dasharray:4;
+  class DEL dead
+        </pre>
+      </div>
+    </div>
+
+    <p class="text-sm"><strong>Problem</strong> — HumanInboxPort 这条 seam 生产上只有 PushInbox 一个 adapter 活着；REST-poll 的 DiscordInbox 和 GatewayInbox 都是零导入的死代码（grep 证实，只剩注释互相致意），却还占着 269 行 + 测试，而且 <code class="font-mono text-xs">discord-substrate.ts</code> 和 <code class="font-mono text-xs">create-real-discord.ts</code> 至今从死模块里借 <code class="font-mono text-xs">InboundMessage</code> 类型。deletion test 完美通过：删掉后没有任何复杂度重现。</p>
+    <p class="text-sm"><strong>Solution</strong> — 删两个死 adapter 及其测试，<code class="font-mono text-xs">InboundMessage</code> 类型挪进 message-events.ts。seam 保留：PushInbox（生产）+ fake（测试）两个 adapter 已经把它撑成真 seam。</p>
+    <ul class="text-sm space-y-0.5 list-disc list-inside text-slate-700">
+      <li>删 ~270 行死 implementation + 死测试</li>
+      <li>seam 上剩下的每个 adapter 都在挣位置</li>
+      <li>AI 导航噪音消除：不再有「三个 inbox 选哪个」的假问题</li>
+    </ul>
+    <p class="text-xs text-slate-500 border-l-2 border-slate-200 pl-3">顺带的好消息：走查曾怀疑「OOC strip 约定分裂」，核实为<b>误报</b>——mapContentToTurn 按 ADR-0011 正确集中，PushInbox 正确调用它。约定 module 本身是健康的 deep module。</p>
+  </article>
+
+  <!-- ============ Candidate 6 ============ -->
+  <article id="c6" class="bg-white border border-slate-200 rounded-xl p-6 space-y-4 shadow-sm">
+    <div class="flex items-start justify-between gap-4">
+      <h2 class="font-serif text-2xl font-bold">6 · 命令面收拢：九个薄壳 handler + 主程序里 95 行手工接线</h2>
+      <div class="flex gap-2 shrink-0">
+        <span class="px-2 py-0.5 rounded bg-slate-200 text-slate-700 text-xs font-semibold">Speculative</span>
+        <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-xs">in-process</span>
+      </div>
+    </div>
+    <p class="font-mono text-sm text-slate-600">src/main.ts:232–325 · src/adapters/discord/command-set.ts · 9 × *-handler.ts (26–96 行)</p>
+
+    <div class="grid grid-cols-2 gap-4">
+      <div class="rounded-lg border border-slate-200 p-3">
+        <p class="text-xs uppercase tracking-wider text-slate-400 mb-2">Before — 每命令一层薄片，接线知识摊在组合根</p>
+        <div class="space-y-1">
+          <div class="h-5 border-l-4 border-slate-400 bg-stone-100 px-2 flex items-center justify-between"><span class="step font-mono">pause-handler</span><span class="step text-red-600">26行 pass-through</span></div>
+          <div class="h-5 border-l-4 border-slate-400 bg-stone-100 px-2 flex items-center justify-between"><span class="step font-mono">approve-handler</span><span class="step text-red-600">44行 pass-through</span></div>
+          <div class="h-5 border-l-4 border-slate-400 bg-stone-100 px-2 flex items-center justify-between"><span class="step font-mono">check-handler</span><span class="step text-red-600">73行 转发+注入</span></div>
+          <div class="h-5 border-l-4 border-slate-400 bg-stone-100 px-2 flex items-center"><span class="step font-mono">roll / start-game / create-card / verify / set-roster</span></div>
+          <div class="h-5 border-l-4 border-slate-500 bg-stone-100 px-2 flex items-center justify-between"><span class="step font-mono">add-ai-seat-handler</span><span class="step text-emerald-700">96行，真编排，在挣位置</span></div>
+          <div class="h-16 border-l-4 border-red-400 bg-red-50 px-2 flex items-center"><span class="step">main.ts 232–325：~95 行逐个 handler 手工 DI + 可变单例 <code class="font-mono">replyChannel</code>（自注「commands are not concurrent」）；权限真相分裂在 router scope 与 roster 之间</span></div>
+        </div>
+      </div>
+      <div class="rounded-lg border border-slate-200 p-3">
+        <p class="text-xs uppercase tracking-wider text-slate-400 mb-2">After — 一个命令面 module，一次注入</p>
+        <div class="space-y-1 h-full flex flex-col justify-center">
+          <div class="deep-box rounded p-3 text-white">
+            <p class="step font-bold">命令面（声明表：name / scope / parse / act）</p>
+            <p class="step text-slate-300 mt-1">共享上下文一次装配：reply · resolveCampaign · systemFor · 权限谓词</p>
+            <p class="step text-slate-300">薄命令 = 表里一行；厚命令（add-ai-seat）仍是独立 module 被表引用</p>
+          </div>
+          <div class="text-center text-slate-400 text-xs">▲</div>
+          <div class="h-6 border-l-4 border-slate-400 bg-stone-100 px-2 flex items-center"><span class="step">main.ts：注入 stores + client，一行建表</span></div>
+        </div>
+      </div>
+    </div>
+
+    <p class="text-sm"><strong>Problem</strong> — 每个 slash 命令 = 一个文件 + 一个工厂 + main 里一段专属 DI。pause(26)/approve(44)/check(73) 是纯转发；deletion test 结果混合：薄的删掉合并复杂度消失，厚的（add-ai-seat 编排 genesis→审→改→绑）在挣位置。伤害主要落在组合根：新命令要动 command-set + main + handler 三处，回复通道还是个可变单例。</p>
+    <p class="text-sm"><strong>Solution</strong> — 命令面收成一个 module：声明式表 + 一次装配的共享上下文；薄命令变表行，厚命令保持独立 module。</p>
+    <ul class="text-sm space-y-0.5 list-disc list-inside text-slate-700">
+      <li>新命令 = 表加一行，main 不再膨胀</li>
+      <li>权限与回复上下文获得 locality</li>
+      <li>删 3–4 个纯转发文件</li>
+    </ul>
+    <p class="text-xs text-slate-500 border-l-2 border-slate-200 pl-3">标 Speculative 的原因：现状每个 handler 都有测试、伤害有限；收拢主要买 main.ts 可读性。若候选 1 先落地，main 瘦身后此卡收益再评。ADR-0012「slash=控制面」不受影响。</p>
+  </article>
+
+  </section>
+
+  <!-- ============ 健康 & 克制 ============ -->
+  <section class="grid grid-cols-2 gap-4">
+    <div class="bg-white border border-slate-200 rounded-xl p-5">
+      <h3 class="font-serif text-lg font-bold mb-2">健康、不需要动</h3>
+      <ul class="text-sm space-y-1 text-slate-700 list-disc list-inside">
+        <li><span class="font-mono text-xs">pacing / combat-round / controller / roster</span> — deep 纯内核，interface 清晰</li>
+        <li><span class="font-mono text-xs">mapContentToTurn</span> — 内容约定正确集中（ADR-0011）</li>
+        <li><span class="font-mono text-xs">dm-driver / dispatcher / push-inbox</span> — 测试从 interface 进入</li>
+        <li><span class="font-mono text-xs">DicePort</span>：BCDice + NativeDice 双 adapter = 真 seam（ADR-0013）</li>
+        <li><span class="font-mono text-xs">substrate</span>：单 webhook / 多 bot 池双 adapter = 真 seam</li>
+        <li>genesis 内核（soul / campaign）— deep、确定性、已测</li>
+      </ul>
+    </div>
+    <div class="bg-white border border-slate-200 rounded-xl p-5">
+      <h3 class="font-serif text-lg font-bold mb-2">克制不做（一个 adapter = 假想 seam）</h3>
+      <ul class="text-sm space-y-1 text-slate-700 list-disc list-inside">
+        <li>transport 无关的 persona 抽象（走查建议过）：VTT 是 pillar-1、明确延后；现在只有 Discord 一族 adapter，为假想基底开 seam 违反「两个 adapter 才是真 seam」</li>
+        <li>NPC prose 防工具语法注入：无实证摩擦，先不设防</li>
+        <li>SceneBook 虽是薄封装，但 locality 无伤——caller 只有 Referee 一个，不动</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ============ Top recommendation ============ -->
+  <section id="top-recommendation" class="deep-box rounded-xl p-8 text-white space-y-3">
+    <p class="text-xs uppercase tracking-widest text-slate-400">Top recommendation</p>
+    <h2 class="font-serif text-2xl font-bold">先做 <a href="#c1" class="underline decoration-indigo-400 underline-offset-4">候选 1：牌桌装配</a></h2>
+    <p class="text-sm text-slate-300 max-w-3xl">最近八个 commit（#50–#57）全在接线层修 live bug，而接线配方恰好抄了三份、且整块自外于测试。把它收进一个 deep module 是本仓库「测试面 = interface」收益最大的一刀：装配大半是确定性组合，假 port 即可覆盖，脚本从此跑的就是生产接线。候选 3（拍回执）与候选 4（生命周期挂点）都围着装配好的 Referee 生长——这一刀先落，后面两刀有落点。<b>候选 2 是例外</b>：它是正在发生的 live 断路，切口小，可以并行先修。</p>
+  </section>
+
+  <footer class="text-xs text-slate-400 pt-4 border-t border-slate-200">
+    Homunculus v2 架构审查 · 2026-07-03 · 3 个 Explore agent 走查 + 人工复核（所有 file:line 与「0 调用」论断经 grep/通读证实）· 词汇表：LANGUAGE.md
+  </footer>
+
+</main>
+</body>
+</html>
